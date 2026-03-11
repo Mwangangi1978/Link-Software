@@ -12,20 +12,20 @@ interface FormData {
   podcastName: string;
   addEvent: boolean;
   eventName: string;
-  motivationAngle: string;
-  searchContext: string;
+  motivationAngle: string[];
+  searchContext: string[];
 }
 
 function App() {
   const [formData, setFormData] = useState<FormData>({
     targetUrl: '',
-    channel: 'Instagram',
+    channel: '',
     addPodcast: false,
     podcastName: '',
     addEvent: false,
     eventName: '',
-    motivationAngle: 'Educational',
-    searchContext: 'self',
+    motivationAngle: [],
+    searchContext: [],
   });
 
   const handleFormChange = (updates: Partial<FormData>) => {
@@ -39,8 +39,8 @@ function App() {
     params.append('utm_source', formData.addPodcast ? formData.podcastName : formData.channel);
     params.append('utm_medium', 'social');
     params.append('utm_campaign', formData.addEvent ? formData.eventName : formData.channel);
-    params.append('utm_content', formData.motivationAngle);
-    params.append('utm_term', formData.searchContext === 'self' ? 'self' : 'others');
+    params.append('utm_content', formData.motivationAngle.join(',') || 'general');
+    params.append('utm_term', formData.searchContext.join(',') || 'general');
 
     const url = new URL(formData.targetUrl);
     url.search = params.toString();
