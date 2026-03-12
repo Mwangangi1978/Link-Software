@@ -1,22 +1,16 @@
 import React from 'react';
 import {
-  Box,
-  Input,
-  Heading,
-  Grid,
-  GridItem,
-  Text,
-} from '@chakra-ui/react';
-import { FormControl, FormLabel } from '@chakra-ui/form-control';
-import { Checkbox } from '@chakra-ui/checkbox';
-import { 
-  Instagram, 
-  Facebook, 
-  Linkedin, 
-  Music, 
+  X,
+  Instagram,
+  Facebook,
+  Linkedin,
+  Music,
   Youtube,
   Twitter,
   Mail,
+  CheckCircle2,
+  Plus,
+  Minus,
 } from 'lucide-react';
 
 interface FormSectionProps {
@@ -37,18 +31,13 @@ const PLATFORMS = [
   { id: 'Instagram', label: 'Instagram', icon: Instagram, color: '#E4405F' },
   { id: 'Facebook', label: 'Facebook', icon: Facebook, color: '#1877F2' },
   { id: 'LinkedIn', label: 'LinkedIn', icon: Linkedin, color: '#0A66C2' },
-  { id: 'TikTok', label: 'TikTok', icon: Music, color: '#000000' },
+  { id: 'TikTok', label: 'TikTok', icon: Music, color: '#1a1a1a' },
   { id: 'YouTube', label: 'YouTube', icon: Youtube, color: '#FF0000' },
-  { id: 'X', label: 'X (Twitter)', icon: Twitter, color: '#000000' },
+  { id: 'X', label: 'X / Twitter', icon: Twitter, color: '#1a1a1a' },
   { id: 'Substack', label: 'Substack', icon: Mail, color: '#FF6D00' },
 ];
 
-const MOTIVATION_OPTIONS = [
-  'Educational',
-  'Financial Incentive',
-  'Altruistic/Community',
-  'Personal Health',
-];
+const MOTIVATION_OPTIONS = ['Educational', 'Financial', 'Community', 'Health'];
 
 const SEARCH_OPTIONS = [
   { id: 'self', label: 'Looking for self' },
@@ -75,322 +64,174 @@ const FormSection: React.FC<FormSectionProps> = ({ formData, onFormChange }) => 
   };
 
   return (
-    <Box bg="white" borderRadius="lg" boxShadow="md" p={8}>
-      <Heading 
-        as="h2" 
-        size="lg" 
-        mb={2}
-        color="gray.900"
-        fontWeight="bold"
-      >
-        Campaign Configuration
-      </Heading>
-      <Text color="gray.600" mb={8} fontSize="sm">
-        Set up your marketing attribution parameters and select your campaign channels
-      </Text>
+    <>
+      {/* ── Column 1: Destination & Channel ── */}
+      <div className="step-card" id="destination-card">
+        <div className="step-header">
+          <div className="step-number">1</div>
+          <h2 className="step-title">Destination &amp; Channel</h2>
+        </div>
 
-      <Box>
-        {/* Target URL */}
-        <FormControl isRequired mb={8}>
-          <FormLabel 
-            fontWeight="bold" 
-            fontSize="md"
-            color="gray.900" 
-            mb={2}
-            display="block"
-          >
-            Target URL
-          </FormLabel>
-          <Text fontSize="xs" color="gray.600" mb={3}>
-            The landing page or destination URL for your campaign
-          </Text>
-          <Input
+        <div className="form-group">
+          <label className="form-label">Target URL*</label>
+          <span className="form-help">The landing page or destination URL for your campaign</span>
+          <input
             type="url"
+            className="form-input"
             value={formData.targetUrl}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange('targetUrl', e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              handleInputChange('targetUrl', e.target.value)
+            }
             placeholder="https://www.trialme.com/landing"
-            size="lg"
-            borderColor="gray.300"
           />
-        </FormControl>
+        </div>
 
-        {/* Channel Selection - Platform Logos */}
-        <FormControl mb={10}>
-          <FormLabel 
-            fontWeight="bold" 
-            fontSize="md"
-            color="gray.900" 
-            mb={4}
-            display="block"
-          >
-            Select Channel
-          </FormLabel>
-          <Text fontSize="sm" color="gray.600" mb={4}>
-            Choose the social media platform for your campaign
-          </Text>
-          <Grid templateColumns={{ base: 'repeat(3, 1fr)', sm: 'repeat(4, 1fr)', lg: 'repeat(7, 1fr)' }} gap={3}>
-            <GridItem>
-              <Box
-                as="button"
-                onClick={() => handleInputChange('channel', '')}
-                p={3}
-                borderWidth={2}
-                borderRadius="full"
-                display="flex"
-                flexDirection="column"
-                alignItems="center"
-                justifyContent="center"
-                gap={1}
-                cursor="pointer"
-                transition="all 0.2s"
-                w={20}
-                h={20}
-                borderColor={formData.channel === '' ? 'red.400' : 'gray.300'}
-                bg={formData.channel === '' ? 'gray.50' : 'white'}
-                boxShadow={formData.channel === '' ? '0 0 0 3px rgba(245, 101, 101, 0.2)' : 'none'}
-                _hover={{
-                  borderColor: 'red.400',
-                  boxShadow: '0 0 0 2px rgba(245, 101, 101, 0.2)',
-                  transform: 'scale(1.05)',
-                }}
-              >
-                <Box fontSize="2xl">✕</Box>
-              </Box>
-              <Text 
-                fontSize="xs" 
-                fontWeight="medium"
-                color="gray.700"
-                textAlign="center"
-                mt={1}
-              >
-                None
-              </Text>
-            </GridItem>
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label">Select Channel</label>
+          <span className="form-help">Choose the social media platform</span>
+          <div className="channel-list">
+            {/* None option */}
+            <div
+              className={`channel-row${formData.channel === '' ? ' active' : ''}`}
+              onClick={() => handleInputChange('channel', '')}
+            >
+              <div className="channel-row-icon">
+                <X size={20} color="#fdfdfd" />
+              </div>
+              <span className="channel-row-label">None</span>
+              {formData.channel === '' && (
+                <div className="channel-row-check">
+                  <CheckCircle2 size={18} color="#fdfdfd" />
+                </div>
+              )}
+            </div>
+
             {PLATFORMS.map((platform) => {
               const Icon = platform.icon;
               const isSelected = formData.channel === platform.id;
               return (
-                <GridItem key={platform.id}>
-                  <Box
-                    as="button"
-                    onClick={() => handleInputChange('channel', platform.id)}
-                    p={3}
-                    borderWidth={2}
-                    borderRadius="full"
-                    display="flex"
-                    flexDirection="column"
-                    alignItems="center"
-                    justifyContent="center"
-                    gap={1}
-                    cursor="pointer"
-                    transition="all 0.2s"
-                    w={20}
-                    h={20}
-                    borderColor={isSelected ? platform.color : 'gray.300'}
-                    bg={isSelected ? 'gray.50' : 'white'}
-                    boxShadow={isSelected ? `0 0 0 3px ${platform.color}33` : 'none'}
-                    _hover={{
-                      borderColor: platform.color,
-                      boxShadow: `0 0 0 2px ${platform.color}33`,
-                      transform: 'scale(1.05)',
-                    }}
-                  >
-                    <Icon size={24} color={platform.color} strokeWidth={1.5} />
-                  </Box>
-                  <Text 
-                    fontSize="xs" 
-                    fontWeight="medium"
-                    color="gray.700"
-                    textAlign="center"
-                    mt={1}
-                  >
-                    {platform.label}
-                  </Text>
-                </GridItem>
+                <div
+                  key={platform.id}
+                  className={`channel-row${isSelected ? ' active' : ''}`}
+                  onClick={() => handleInputChange('channel', platform.id)}
+                >
+                  <div className="channel-row-icon">
+                    <Icon size={20} color={platform.color} />
+                  </div>
+                  <span className="channel-row-label">{platform.label}</span>
+                  {isSelected && (
+                    <div className="channel-row-check">
+                      <CheckCircle2 size={18} color="#fdfdfd" />
+                    </div>
+                  )}
+                </div>
               );
             })}
-          </Grid>
-        </FormControl>
+          </div>
+        </div>
+      </div>
 
-        {/* External Sources - Podcast */}
-        <Box bg="blue.50" p={4} borderRadius="md" mb={8} borderLeft="4px solid" borderColor="blue.400">
-          <FormControl display="flex" alignItems="center" mb={formData.addPodcast ? 3 : 0}>
-            <Checkbox
-              isChecked={formData.addPodcast}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange('addPodcast', e.target.checked)}
-              colorScheme="blue"
-              size="lg"
-            >
-              <FormLabel 
-                mb={0} 
-                fontWeight="semibold" 
-                color="gray.900" 
-                cursor="pointer"
-                fontSize="md"
-              >
-                Add Podcast Attribution
-              </FormLabel>
-            </Checkbox>
-          </FormControl>
-          {formData.addPodcast && (
-            <Box ml={8} mt={3}>
-              <Text fontSize="xs" color="gray.600" mb={2}>
-                Enter the podcast name
-              </Text>
-              <Input
-                type="text"
-                value={formData.podcastName}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange('podcastName', e.target.value)}
-                placeholder="Podcast Name"
-                size="sm"
-              />
-            </Box>
-          )}
-        </Box>
+      {/* ── Column 2: Campaign Attributes ── */}
+      <div className="step-card" id="attributes-card">
+        <div className="step-header">
+          <div className="step-number">2</div>
+          <h2 className="step-title">Campaign Attributes</h2>
+        </div>
 
-        {/* External Sources - Live Event */}
-        <Box bg="purple.50" p={4} borderRadius="md" mb={10} borderLeft="4px solid" borderColor="purple.400">
-          <FormControl display="flex" alignItems="center" mb={formData.addEvent ? 3 : 0}>
-            <Checkbox
-              isChecked={formData.addEvent}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange('addEvent', e.target.checked)}
-              colorScheme="purple"
-              size="lg"
-            >
-              <FormLabel 
-                mb={0} 
-                fontWeight="semibold" 
-                color="gray.900" 
-                cursor="pointer"
-                fontSize="md"
-              >
-                Add Event Attribution
-              </FormLabel>
-            </Checkbox>
-          </FormControl>
-          {formData.addEvent && (
-            <Box ml={8} mt={3}>
-              <Text fontSize="xs" color="gray.600" mb={2}>
-                Enter the event name or location
-              </Text>
-              <Input
-                type="text"
-                value={formData.eventName}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleInputChange('eventName', e.target.value)}
-                placeholder="Event Name/Location"
-                size="sm"
-              />
-            </Box>
-          )}
-        </Box>
+        {/* Offline Attribution */}
+        <div className="form-group">
+          <label className="form-label">Offline Attribution</label>
+          <span className="form-help">Track specific offline marketing efforts</span>
 
-        {/* Motivation Angle - Checkboxes */}
-        <FormControl mb={10}>
-          <FormLabel 
-            fontWeight="bold" 
-            fontSize="md"
-            color="gray.900" 
-            mb={3}
-            display="block"
+          <button
+            className={`attribution-btn podcast${formData.addPodcast ? ' expanded' : ''}`}
+            onClick={() => handleInputChange('addPodcast', !formData.addPodcast)}
           >
-            Motivation Angle
-          </FormLabel>
-          <Text fontSize="sm" color="gray.600" mb={4}>
-            Select all that apply to your campaign
-          </Text>
-          <Box display="flex" flexDirection="column" gap={3}>
+            <span>
+              {formData.addPodcast
+                ? `Podcast: ${formData.podcastName || 'Enter name…'}`
+                : 'Add Podcast Attribution'}
+            </span>
+            {formData.addPodcast ? <Minus size={16} /> : <Plus size={16} />}
+          </button>
+          {formData.addPodcast && (
+            <div className="attribution-input-wrapper">
+              <input
+                type="text"
+                className="form-input"
+                value={formData.podcastName}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  handleInputChange('podcastName', e.target.value)
+                }
+                placeholder="Enter podcast name"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
+
+          <button
+            className={`attribution-btn event${formData.addEvent ? ' expanded' : ''}`}
+            onClick={() => handleInputChange('addEvent', !formData.addEvent)}
+            style={{ marginBottom: formData.addEvent ? 0 : 0 }}
+          >
+            <span>
+              {formData.addEvent
+                ? `Event: ${formData.eventName || 'Enter name…'}`
+                : 'Add Event Attribution'}
+            </span>
+            {formData.addEvent ? <Minus size={16} /> : <Plus size={16} />}
+          </button>
+          {formData.addEvent && (
+            <div className="attribution-input-wrapper">
+              <input
+                type="text"
+                className="form-input"
+                value={formData.eventName}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  handleInputChange('eventName', e.target.value)
+                }
+                placeholder="Enter event name"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Motivation Angle */}
+        <div className="form-group">
+          <label className="form-label">Motivation Angle</label>
+          <span className="form-help">Select all that apply to your campaign</span>
+          <div className="tag-grid">
             {MOTIVATION_OPTIONS.map((angle) => (
-              <Box 
+              <div
                 key={angle}
-                display="flex" 
-                alignItems="center"
-                p={3}
-                borderRadius="md"
-                bg="white"
-                borderWidth={1}
-                borderColor={formData.motivationAngle.includes(angle) ? 'blue.200' : 'gray.200'}
-                _hover={{ borderColor: 'blue.300', bg: 'gray.50' }}
-                transition="all 0.2s"
-                cursor="pointer"
+                className={`tag-item${formData.motivationAngle.includes(angle) ? ' active' : ''}`}
                 onClick={() => toggleMotivationAngle(angle)}
               >
-                <Checkbox
-                  isChecked={formData.motivationAngle.includes(angle)}
-                  onChange={() => {}}
-                  colorScheme="blue"
-                  size="lg"
-                  mr={4}
-                  pointerEvents="none"
-                />
-                <FormLabel 
-                  mb={0} 
-                  color="gray.800" 
-                  cursor="pointer" 
-                  fontWeight="medium"
-                  fontSize="md"
-                  flex={1}
-                >
-                  {angle}
-                </FormLabel>
-              </Box>
+                {angle}
+              </div>
             ))}
-          </Box>
-        </FormControl>
+          </div>
+        </div>
 
-        {/* Search Context - Checkboxes */}
-        <FormControl>
-          <FormLabel 
-            fontWeight="bold" 
-            fontSize="md"
-            color="gray.900" 
-            mb={3}
-            display="block"
-          >
-            Search Context
-          </FormLabel>
-          <Text fontSize="sm" color="gray.600" mb={4}>
-            Select all that apply to your campaign
-          </Text>
-          <Box display="flex" flexDirection="column" gap={3}>
+        {/* Search Context */}
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label">Search Context</label>
+          <span className="form-help">Who is the user looking for?</span>
+          <div className="tag-grid" style={{ gridTemplateColumns: '1fr' }}>
             {SEARCH_OPTIONS.map((option) => (
-              <Box 
+              <div
                 key={option.id}
-                display="flex" 
-                alignItems="center"
-                p={3}
-                borderRadius="md"
-                bg="white"
-                borderWidth={1}
-                borderColor={formData.searchContext.includes(option.id) ? 'blue.200' : 'gray.200'}
-                _hover={{ borderColor: 'blue.300', bg: 'gray.50' }}
-                transition="all 0.2s"
-                cursor="pointer"
+                className={`tag-item${formData.searchContext.includes(option.id) ? ' active' : ''}`}
                 onClick={() => toggleSearchContext(option.id)}
               >
-                <Checkbox
-                  isChecked={formData.searchContext.includes(option.id)}
-                  onChange={() => {}}
-                  colorScheme="blue"
-                  size="lg"
-                  mr={4}
-                  pointerEvents="none"
-                />
-                <FormLabel 
-                  mb={0} 
-                  color="gray.800" 
-                  cursor="pointer" 
-                  fontWeight="medium"
-                  fontSize="md"
-                  flex={1}
-                >
-                  {option.label}
-                </FormLabel>
-              </Box>
+                {option.label}
+              </div>
             ))}
-          </Box>
-        </FormControl>
-      </Box>
-    </Box>
+          </div>
+        </div>
+      </div>
+    </>
   );
 };
 
