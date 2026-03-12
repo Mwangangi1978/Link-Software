@@ -2,15 +2,29 @@ import React, { useState, useRef } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { Download, FileText, Upload, Palette, Copy, Check, X as XIcon } from 'lucide-react';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 
 interface QRGeneratorProps {
   url: string;
 }
 
+const isValidHex = (v: string) => /^#[0-9A-Fa-f]{6}$/.test(v);
+
+const hexToRgb = (hex: string) => {
+  const normalized = hex.replace('#', '');
+  const bigint = parseInt(normalized, 16);
+  return {
+    r: (bigint >> 16) & 255,
+    g: (bigint >> 8) & 255,
+    b: bigint & 255,
+  };
+};
+
 const QRGenerator: React.FC<QRGeneratorProps> = ({ url }) => {
   const [bgColor, setBgColor] = useState('#ffffff');
   const [fgColor, setFgColor] = useState('#000000');
+  // Separate text-input state so users can type intermediate values
+  const [bgInput, setBgInput] = useState('#ffffff');
+  const [fgInput, setFgInput] = useState('#000000');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
@@ -18,6 +32,25 @@ const QRGenerator: React.FC<QRGeneratorProps> = ({ url }) => {
   const bgColorRef = useRef<HTMLInputElement>(null);
   const fgColorRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleBgPicker = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setBgColor(e.target.value);
+    setBgInput(e.target.value);
+  };
+  const handleFgPicker = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFgColor(e.target.value);
+    setFgInput(e.target.value);
+  };
+  const handleBgText = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setBgInput(v);
+    if (isValidHex(v)) setBgColor(v);
+  };
+  const handleFgText = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setFgInput(v);
+    if (isValidHex(v)) setFgColor(v);
+  };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -39,32 +72,76 @@ const QRGenerator: React.FC<QRGeneratorProps> = ({ url }) => {
     }
   };
 
-  const downloadPNG = () => {
-    if (!url || !qrCodeRef.current) return;
-    const canvas = qrCodeRef.current.querySelector('canvas') as HTMLCanvasElement;
-    if (canvas) {
+  const buildCompositeCanvas = (): Promise<HTMLCanvasElement> => {
+    return new Promise((resolve, reject) => {
+      const qrCanvas = qrCodeRef.current?.querySelector('canvas') as HTMLCanvasElement | null;
+      if (!qrCanvas) return reject(new Error('QR canvas not found'));
+
+      const qrSize = qrCanvas.width;
+      const pagePadding = Math.round(qrSize * 0.28);
+      const size = qrSize + pagePadding * 2;
+      const out = document.createElement('canvas');
+      out.width = size;
+      out.height = size;
+      const ctx = out.getContext('2d')!;
+
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(qrCanvas, pagePadding, pagePadding);
+
+      if (!logoUrl) return resolve(out);
+
+      const img = new Image();
+      img.onload = () => {
+        const logoSize = Math.round(qrSize * 0.22);
+        const pad = 5;
+        const x = pagePadding + (qrSize - logoSize) / 2;
+        const y = pagePadding + (qrSize - logoSize) / 2;
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        // Use roundRect if available, fall back to plain rect
+        if (ctx.roundRect) {
+          ctx.roundRect(x - pad, y - pad, logoSize + pad * 2, logoSize + pad * 2, 4);
+        } else {
+          ctx.rect(x - pad, y - pad, logoSize + pad * 2, logoSize + pad * 2);
+        }
+        ctx.fill();
+        ctx.drawImage(img, x, y, logoSize, logoSize);
+        resolve(out);
+      };
+      img.onerror = reject;
+      img.src = logoUrl;
+    });
+  };
+
+  const downloadPNG = async () => {
+    if (!url) return;
+    try {
+      const canvas = await buildCompositeCanvas();
       const link = document.createElement('a');
       link.href = canvas.toDataURL('image/png');
       link.download = 'trialme-campaign-qr.png';
       link.click();
+    } catch (err) {
+      console.error('Failed to export PNG:', err);
     }
   };
 
   const downloadPDF = async () => {
-    if (!url || !qrRef.current) return;
+    if (!url) return;
     try {
-      const canvas = await html2canvas(qrRef.current, { backgroundColor: null });
+      const canvas = await buildCompositeCanvas();
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
-      pdf.setFontSize(16);
-      pdf.text('TrialMe Campaign QR Code', pdfWidth / 2, 20, { align: 'center' });
-      const imgSize = 100;
-      pdf.addImage(imgData, 'PNG', (pdfWidth - imgSize) / 2, 35, imgSize, imgSize);
-      pdf.setFontSize(10);
-      const urlText = pdf.splitTextToSize(url, pdfWidth - 40);
-      pdf.text(urlText, 20, pdfHeight - 45);
+
+      const { r, g, b } = hexToRgb(bgColor);
+      pdf.setFillColor(r, g, b);
+      pdf.rect(0, 0, pdfWidth, pdfHeight, 'F');
+
+      const imgSize = 130;
+      pdf.addImage(imgData, 'PNG', (pdfWidth - imgSize) / 2, (pdfHeight - imgSize) / 2, imgSize, imgSize);
       pdf.save('trialme-campaign-qr.pdf');
     } catch (err) {
       console.error('Failed to generate PDF:', err);
@@ -80,14 +157,14 @@ const QRGenerator: React.FC<QRGeneratorProps> = ({ url }) => {
 
       {/* QR Preview */}
       <div className="qr-preview-card" ref={qrRef}>
-        <div className="qr-code-frame" ref={qrCodeRef}>
+        <div className="qr-code-frame" ref={qrCodeRef} style={{ backgroundColor: bgColor }}>
           {url ? (
             <div style={{ position: 'relative', display: 'inline-flex' }}>
               <QRCodeCanvas
                 value={url}
                 size={168}
                 level="H"
-                includeMargin={false}
+                includeMargin
                 bgColor={bgColor}
                 fgColor={fgColor}
               />
@@ -149,20 +226,23 @@ const QRGenerator: React.FC<QRGeneratorProps> = ({ url }) => {
               <Palette size={13} />
               <span>Background</span>
             </div>
-            <div
-              className="color-input-shell"
-              onClick={() => bgColorRef.current?.click()}
-              title="Pick background colour"
-            >
+            <div className="color-input-shell" title="Pick background colour">
               <input
                 ref={bgColorRef}
                 type="color"
                 value={bgColor}
-                onChange={(e) => setBgColor(e.target.value)}
-                style={{ display: 'none' }}
+                onChange={handleBgPicker}
+                style={{ width: 26, height: 26, padding: 0, border: 'none', borderRadius: 4, cursor: 'pointer', background: 'none', flexShrink: 0 }}
               />
-              <div className="color-swatch" style={{ background: bgColor }} />
-              <div className="color-value">{bgColor}</div>
+              <input
+                type="text"
+                value={bgInput}
+                onChange={handleBgText}
+                onBlur={() => { if (!isValidHex(bgInput)) setBgInput(bgColor); }}
+                maxLength={7}
+                spellCheck={false}
+                className="color-hex-input"
+              />
             </div>
           </div>
           <div className="color-control">
@@ -170,20 +250,23 @@ const QRGenerator: React.FC<QRGeneratorProps> = ({ url }) => {
               <Palette size={13} />
               <span>Foreground</span>
             </div>
-            <div
-              className="color-input-shell"
-              onClick={() => fgColorRef.current?.click()}
-              title="Pick foreground colour"
-            >
+            <div className="color-input-shell" title="Pick foreground colour">
               <input
                 ref={fgColorRef}
                 type="color"
                 value={fgColor}
-                onChange={(e) => setFgColor(e.target.value)}
-                style={{ display: 'none' }}
+                onChange={handleFgPicker}
+                style={{ width: 26, height: 26, padding: 0, border: 'none', borderRadius: 4, cursor: 'pointer', background: 'none', flexShrink: 0 }}
               />
-              <div className="color-swatch" style={{ background: fgColor }} />
-              <div className="color-value">{fgColor}</div>
+              <input
+                type="text"
+                value={fgInput}
+                onChange={handleFgText}
+                onBlur={() => { if (!isValidHex(fgInput)) setFgInput(fgColor); }}
+                maxLength={7}
+                spellCheck={false}
+                className="color-hex-input"
+              />
             </div>
           </div>
         </div>

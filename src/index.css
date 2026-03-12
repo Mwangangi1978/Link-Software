@@ -517,6 +517,7 @@ input, textarea {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
 
 .color-label {
@@ -537,7 +538,8 @@ input, textarea {
   align-items: center;
   gap: 10px;
   min-height: 48px;
-  cursor: pointer;
+  width: 100%;
+  overflow: hidden;
 }
 
 .color-swatch {
@@ -548,11 +550,17 @@ input, textarea {
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-.color-value {
+.color-hex-input {
   font-size: 13px;
   font-weight: 500;
   color: #fdfdfd;
   font-family: 'IBM Plex Mono', monospace;
+  background: transparent;
+  border: none;
+  outline: none;
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .logo-upload-card {
