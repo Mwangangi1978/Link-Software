@@ -204,13 +204,21 @@ export function SearchBox({ value, onChange, placeholder = 'Search' }: { value: 
 }
 
 // ── Date Range Picker ──────────────────────────────────────
-export function DateRangePicker() {
-  const ranges = ['7d', '30d', '90d', 'YTD', 'All'];
-  const [r, setR] = useState('30d');
+export type DateRangeId = '7d' | '30d' | '90d' | 'YTD' | 'All';
+const DATE_RANGES: DateRangeId[] = ['7d', '30d', '90d', 'YTD', 'All'];
+
+interface DateRangePickerProps {
+  value?: DateRangeId;
+  onChange?: (v: DateRangeId) => void;
+}
+export function DateRangePicker({ value, onChange }: DateRangePickerProps = {}) {
+  const [internal, setInternal] = useState<DateRangeId>('30d');
+  const r = value ?? internal;
+  const set = onChange ?? setInternal;
   return (
     <div className="seg" style={{ height: 30 }}>
-      {ranges.map(x => (
-        <button key={x} className={r === x ? 'active' : ''} onClick={() => setR(x)}>{x}</button>
+      {DATE_RANGES.map(x => (
+        <button key={x} className={r === x ? 'active' : ''} onClick={() => set(x)}>{x}</button>
       ))}
     </div>
   );

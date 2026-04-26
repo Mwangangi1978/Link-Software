@@ -3,7 +3,7 @@ import './dashboard.css';
 import { supabase } from './lib/supabase';
 import { useAuth } from './lib/auth';
 import type { Trial, Event, ContentVariant, Campaign, Session, TrackedLink } from './lib/types';
-import { Crumbs, DateRangePicker, Icons, Toast } from './components/dashboard/shared';
+import { Crumbs, DateRangePicker, Icons, Toast, type DateRangeId } from './components/dashboard/shared';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { SignInPage } from './pages/SignInPage';
 import { ForbiddenPage } from './pages/ForbiddenPage';
@@ -42,6 +42,7 @@ type PageId = typeof PAGES[number]['id'];
 export default function App() {
   const { user, profile, loading: authLoading, isAdmin, signOut } = useAuth();
   const [page, setPage] = useState<PageId>('overview');
+  const [dateRange, setDateRange] = useState<DateRangeId>('30d');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toast = useCallback((m: string) => setToastMsg(m), []);
 
@@ -151,7 +152,7 @@ export default function App() {
   };
 
   const renderCurrentPage = () => {
-    if (page === 'overview') return <OverviewPage store={store} go={setPage as (p: string) => void} />;
+    if (page === 'overview') return <OverviewPage store={store} go={setPage as (p: string) => void} dateRange={dateRange} />;
     if (page === 'platforms') return <PlatformsPage store={store} />;
     if (page === 'events') return <EventsPage store={store} />;
     if (page === 'trials') return <TrialsPage store={store} />;
@@ -218,7 +219,7 @@ export default function App() {
         <div className="dash-topbar">
           <Crumbs items={current.crumb} />
           <div className="topbar-actions">
-            <DateRangePicker />
+            <DateRangePicker value={dateRange} onChange={setDateRange} />
             <div className="pill"><span className="dot" /> Tracker live</div>
           </div>
         </div>

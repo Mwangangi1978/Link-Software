@@ -15,6 +15,149 @@ export function slug(s: string): string {
   return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 }
 
+// ────────────────────────────────────────────────────────────
+// Date range / windowing
+// ────────────────────────────────────────────────────────────
+export type DateRange = '7d' | '30d' | '90d' | 'YTD' | 'All';
+export type Grain = 'daily' | 'weekly' | 'monthly';
+
+export interface DateWindow {
+  start: Date | null; // null means unbounded (All time)
+  end: Date;
+}
+
+export function dateRangeToWindow(range: DateRange, refDate?: Date): DateWindow {
+  const end = refDate ?? new Date();
+  if (range === 'All') return { start: null, end };
+  if (range === 'YTD') return { start: new Date(end.getFullYear(), 0, 1), end };
+  const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
+  const start = new Date(end.getTime() - days * 86400000);
+  return { start, end };
+}
+
+// Equal-length window immediately preceding `w`. Returns null when w is unbounded.
+export function previousWindow(w: DateWindow): DateWindow | null {
+  if (!w.start) return null;
+  const length = w.end.getTime() - w.start.getTime();
+  return {
+    start: new Date(w.start.getTime() - length),
+    end: new Date(w.start.getTime()),
+  };
+}
+
+function inWindow(ts: string | null | undefined, w: DateWindow): boolean {
+  if (!ts) return false;
+  const t = new Date(ts).getTime();
+  if (Number.isNaN(t)) return false;
+  if (w.start && t < w.start.getTime()) return false;
+  return t <= w.end.getTime();
+}
+
+export function filterSessionsByWindow(sessions: Session[], w: DateWindow): Session[] {
+  return sessions.filter(s => inWindow(s.visit_timestamp, w));
+}
+
+export function filterLinksByWindow(links: TrackedLink[], w: DateWindow): TrackedLink[] {
+  return links.filter(l => inWindow(l.created_at, w));
+}
+
+export function filterEventsByWindow(events: Event[], w: DateWindow): Event[] {
+  return events.filter(e => inWindow(e.created_at, w));
+}
+
+// ────────────────────────────────────────────────────────────
+// Trend bucketing — turn real sessions into daily/weekly/monthly buckets
+// ────────────────────────────────────────────────────────────
+export interface TrendPoint {
+  date: Date;
+  v: number; // visits
+  s: number; // signups
+}
+
+function bucketStart(d: Date, grain: Grain): Date {
+  if (grain === 'daily') return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if (grain === 'monthly') return new Date(d.getFullYear(), d.getMonth(), 1);
+  // weekly: Monday-anchored
+  const dt = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = dt.getDay(); // Sun=0..Sat=6
+  const diff = day === 0 ? -6 : 1 - day;
+  dt.setDate(dt.getDate() + diff);
+  return dt;
+}
+
+function nextBucket(d: Date, grain: Grain): Date {
+  const n = new Date(d);
+  if (grain === 'daily') n.setDate(n.getDate() + 1);
+  else if (grain === 'weekly') n.setDate(n.getDate() + 7);
+  else n.setMonth(n.getMonth() + 1);
+  return n;
+}
+
+export function bucketSessions(sessions: Session[], grain: Grain, w: DateWindow): TrendPoint[] {
+  // Determine effective start: window.start, or earliest session, or end-30d
+  let start: Date;
+  if (w.start) start = w.start;
+  else if (sessions.length) {
+    start = new Date(Math.min(...sessions.map(s => new Date(s.visit_timestamp).getTime())));
+  } else {
+    start = new Date(w.end.getTime() - 30 * 86400000);
+  }
+  const end = w.end;
+
+  const buckets = new Map<number, { v: number; s: number }>();
+  let cur = bucketStart(start, grain);
+  const cap = bucketStart(end, grain);
+  let safety = 0;
+  while (cur.getTime() <= cap.getTime() && safety++ < 400) {
+    buckets.set(cur.getTime(), { v: 0, s: 0 });
+    cur = nextBucket(cur, grain);
+  }
+
+  for (const sess of sessions) {
+    const k = bucketStart(new Date(sess.visit_timestamp), grain).getTime();
+    const b = buckets.get(k);
+    if (!b) continue;
+    b.v++;
+    if (sess.status === 'form_submitted') b.s++;
+  }
+
+  return [...buckets.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([k, b]) => ({ date: new Date(k), v: b.v, s: b.s }));
+}
+
+// ────────────────────────────────────────────────────────────
+// Delta helpers (current vs previous-period)
+// ────────────────────────────────────────────────────────────
+export interface DeltaResult {
+  delta: string;
+  down: boolean;
+}
+
+export function pctDelta(curr: number, prev: number): DeltaResult {
+  if (prev === 0 && curr === 0) return { delta: '0.0%', down: false };
+  if (prev === 0) return { delta: '+new', down: false };
+  const pct = ((curr - prev) / prev) * 100;
+  const sign = pct >= 0 ? '+' : '−';
+  return { delta: `${sign}${Math.abs(pct).toFixed(1)}%`, down: pct < 0 };
+}
+
+export function ppDelta(currRate: number, prevRate: number): DeltaResult {
+  const diff = (currRate - prevRate) * 100;
+  const sign = diff >= 0 ? '+' : '−';
+  return { delta: `${sign}${Math.abs(diff).toFixed(1)}pp`, down: diff < 0 };
+}
+
+export function gbpDelta(curr: number, prev: number): DeltaResult {
+  const diff = curr - prev;
+  const sign = diff >= 0 ? '+' : '−';
+  const abs = Math.abs(diff);
+  return {
+    delta: `${sign}£${abs.toLocaleString('en-GB', { maximumFractionDigits: 0 })}`,
+    down: diff < 0,
+  };
+}
+
 
 export interface AggPlatformRow {
   key: string;

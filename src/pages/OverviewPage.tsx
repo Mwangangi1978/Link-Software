@@ -1,31 +1,48 @@
 import { useMemo, useState } from 'react';
 import type { Store } from '../App';
-import { PageHead, Kpi, ChipGroup, ConvCell, Icons } from '../components/dashboard/shared';
-import { aggPlatformRows, aggEventRows, aggTrialRows, aggTotals, fmt } from '../lib/data';
+import { PageHead, Kpi, ChipGroup, ConvCell, Icons, type DateRangeId } from '../components/dashboard/shared';
+import {
+  aggPlatformRows, aggEventRows, aggTrialRows, aggTotals, fmt,
+  bucketSessions, dateRangeToWindow, previousWindow,
+  filterSessionsByWindow, filterLinksByWindow, filterEventsByWindow,
+  pctDelta, ppDelta, gbpDelta,
+  type Grain, type TrendPoint,
+} from '../lib/data';
 
-interface Props { store: Store; go: (p: string) => void; }
+interface Props { store: Store; go: (p: string) => void; dateRange: DateRangeId; }
 
-export function OverviewPage({ store, go }: Props) {
-  const { sessions, events, trials, trackedLinks, loading } = store;
-  const [grain, setGrain] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+export function OverviewPage({ store, go, dateRange }: Props) {
+  const { sessions: allSessions, events: allEvents, trials, trackedLinks: allLinks, loading } = store;
+  const [grain, setGrain] = useState<Grain>('daily');
 
-  const totals = useMemo(() => aggTotals(sessions, events, trackedLinks), [sessions, events, trackedLinks]);
-  const platRows = useMemo(() => aggPlatformRows(sessions, trackedLinks, trials), [sessions, trackedLinks, trials]);
-  const evtRows  = useMemo(() => aggEventRows(sessions, events, trials), [sessions, events, trials]);
-  const trialRows = useMemo(() => aggTrialRows(sessions, events, trials, trackedLinks), [sessions, events, trials, trackedLinks]);
+  // Resolve current + previous comparison windows from the topbar selector
+  const window = useMemo(() => dateRangeToWindow(dateRange), [dateRange]);
+  const prev = useMemo(() => previousWindow(window), [window]);
+  const showDeltas = prev !== null;
 
-  // Trend data (synthetic buckets based on real totals)
-  const trend = useMemo(() => {
-    const days = grain === 'daily' ? 30 : grain === 'weekly' ? 12 : 6;
-    return Array.from({ length: days }, (_, i) => ({
-      v: Math.round((totals.visits / days) * (0.7 + Math.sin(i * 0.5) * 0.25 + (i / days) * 0.4)),
-      s: Math.round((totals.signups / days) * (0.7 + Math.sin(i * 0.5 + 0.3) * 0.25 + (i / days) * 0.4)),
-    }));
-  }, [totals.visits, totals.signups, grain]);
+  // Filter all entities to current window
+  const sessions     = useMemo(() => filterSessionsByWindow(allSessions, window),  [allSessions, window]);
+  const trackedLinks = useMemo(() => filterLinksByWindow(allLinks, window),        [allLinks, window]);
+  const events       = useMemo(() => filterEventsByWindow(allEvents, window),      [allEvents, window]);
 
-  // Source mix
-  const platVisits = platRows.reduce((a, b) => a + b.visits, 0);
-  const evtVisits  = evtRows.reduce((a, b) => a + b.visits, 0);
+  // Filter to previous-equal-length window for delta comparisons
+  const prevSessions = useMemo(() => prev ? filterSessionsByWindow(allSessions, prev) : [], [allSessions, prev]);
+  const prevLinks    = useMemo(() => prev ? filterLinksByWindow(allLinks, prev)       : [], [allLinks, prev]);
+  const prevEvents   = useMemo(() => prev ? filterEventsByWindow(allEvents, prev)     : [], [allEvents, prev]);
+
+  const totals     = useMemo(() => aggTotals(sessions, events, trackedLinks),         [sessions, events, trackedLinks]);
+  const prevTotals = useMemo(() => aggTotals(prevSessions, prevEvents, prevLinks),    [prevSessions, prevEvents, prevLinks]);
+
+  const platRows  = useMemo(() => aggPlatformRows(sessions, trackedLinks, trials),       [sessions, trackedLinks, trials]);
+  const evtRows   = useMemo(() => aggEventRows(sessions, events, trials),                [sessions, events, trials]);
+  const trialRows = useMemo(() => aggTrialRows(sessions, events, trials, trackedLinks),  [sessions, events, trials, trackedLinks]);
+
+  // Real trend, bucketed by selected grain over the active window
+  const trend = useMemo(() => bucketSessions(sessions, grain, window), [sessions, grain, window]);
+
+  // Source mix from filtered sessions
+  const platVisits   = sessions.filter(s => s.link_type === 'platform').length;
+  const evtVisits    = sessions.filter(s => s.link_type === 'event').length;
   const directVisits = sessions.filter(s => s.link_type === 'direct' || !s.link_type).length;
   const totalMix = platVisits + evtVisits + directVisits || 1;
 
@@ -37,6 +54,13 @@ export function OverviewPage({ store, go }: Props) {
 
   const topPlats = [...platRows].sort((a, b) => b.signups - a.signups).slice(0, 5);
   const topEvts  = [...evtRows].sort((a, b) => b.signups - a.signups).slice(0, 5);
+
+  // Computed deltas vs previous window
+  const dVisits  = useMemo(() => pctDelta(totals.visits, prevTotals.visits),   [totals, prevTotals]);
+  const dSignups = useMemo(() => pctDelta(totals.signups, prevTotals.signups), [totals, prevTotals]);
+  const dConv    = useMemo(() => ppDelta(totals.conv, prevTotals.conv),        [totals, prevTotals]);
+  const dSpend   = useMemo(() => gbpDelta(totals.spend, prevTotals.spend),     [totals, prevTotals]);
+  const dCps     = useMemo(() => gbpDelta(totals.cps, prevTotals.cps),         [totals, prevTotals]);
 
   if (loading) return <div className="loading-state">Loading dashboard…</div>;
 
@@ -50,11 +74,11 @@ export function OverviewPage({ store, go }: Props) {
 
       {/* KPIs */}
       <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
-        <Kpi label="Total visits"    value={fmt(totals.visits)}          delta="+12.4%" />
-        <Kpi label="Total signups"   value={fmt(totals.signups)}         delta="+9.1%" />
-        <Kpi label="Conversion rate" value={fmt(totals.conv, 'pct')}     delta="−0.4%" down />
-        <Kpi label="Total spend"     value={fmt(totals.spend, 'gbp')}    delta="+£1,420" />
-        <Kpi label="Cost / signup"   value={fmt(totals.cps, 'gbp')}      delta="−£0.86" feature />
+        <Kpi label="Total visits"    value={fmt(totals.visits)}        delta={showDeltas ? dVisits.delta  : undefined} down={dVisits.down} />
+        <Kpi label="Total signups"   value={fmt(totals.signups)}       delta={showDeltas ? dSignups.delta : undefined} down={dSignups.down} />
+        <Kpi label="Conversion rate" value={fmt(totals.conv, 'pct')}   delta={showDeltas ? dConv.delta    : undefined} down={dConv.down} />
+        <Kpi label="Total spend"     value={fmt(totals.spend, 'gbp')}  delta={showDeltas ? dSpend.delta   : undefined} down={dSpend.down} />
+        <Kpi label="Cost / signup"   value={fmt(totals.cps, 'gbp')}    delta={showDeltas ? dCps.delta     : undefined} down={dCps.down} feature />
       </div>
 
       {/* Trend + Mix */}
@@ -63,16 +87,22 @@ export function OverviewPage({ store, go }: Props) {
           <div className="card-head">
             <div className="head-text">
               <h3>Visits &amp; signups <em>over time</em></h3>
-              <div className="sub">Approximated from total session data.</div>
+              <div className="sub">{trendSubtitle(grain, window.start, window.end)}</div>
             </div>
-            <ChipGroup value={grain} onChange={v => setGrain(v as typeof grain)} options={[
+            <ChipGroup value={grain} onChange={v => setGrain(v as Grain)} options={[
               { id: 'daily', label: 'Daily' },
               { id: 'weekly', label: 'Weekly' },
               { id: 'monthly', label: 'Monthly' },
             ]} />
           </div>
           <div className="card-body">
-            <TrendChart trend={trend} />
+            {trend.some(t => t.v > 0) ? (
+              <TrendChart trend={trend} grain={grain} />
+            ) : (
+              <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--ink-mute)', fontSize: 13 }}>
+                No sessions in this window.
+              </div>
+            )}
             <div className="legend-row" style={{ marginTop: 10 }}>
               <span><span className="dotc" style={{ background: 'var(--burgundy)' }} /> Visits</span>
               <span><span className="dotc" style={{ background: 'var(--rose)' }} /> Signups</span>
@@ -138,7 +168,7 @@ export function OverviewPage({ store, go }: Props) {
             <thead><tr><th>Platform</th><th>Trial</th><th className="right">Visits</th><th className="right">Signups</th><th className="right">CR</th></tr></thead>
             <tbody>
               {topPlats.length === 0 ? (
-                <tr><td colSpan={5} style={{ color: 'var(--ink-mute)', padding: 20, textAlign: 'center' }}>No platform data yet</td></tr>
+                <tr><td colSpan={5} style={{ color: 'var(--ink-mute)', padding: 20, textAlign: 'center' }}>No platform data in this window</td></tr>
               ) : topPlats.map(r => (
                 <tr key={r.key}>
                   <td>
@@ -176,7 +206,7 @@ export function OverviewPage({ store, go }: Props) {
             <thead><tr><th>Event</th><th>Trial</th><th className="right">Signups</th><th className="right">Cost</th><th className="right">CPS</th></tr></thead>
             <tbody>
               {topEvts.length === 0 ? (
-                <tr><td colSpan={5} style={{ color: 'var(--ink-mute)', padding: 20, textAlign: 'center' }}>No event data yet</td></tr>
+                <tr><td colSpan={5} style={{ color: 'var(--ink-mute)', padding: 20, textAlign: 'center' }}>No event data in this window</td></tr>
               ) : topEvts.map(r => (
                 <tr key={r.key}>
                   <td>
@@ -287,7 +317,7 @@ export function OverviewPage({ store, go }: Props) {
             <span className="pill"><span className="dot" /> Tracker live</span>
           </div>
           <div className="card-body" style={{ padding: 0 }}>
-            {store.sessions.slice(0, 6).map((s, i) => {
+            {allSessions.slice(0, 6).map((s, i) => {
               const isSignup = s.status === 'form_submitted';
               const IcName = isSignup ? 'Check' : s.link_type === 'event' ? 'Building' : 'Eye';
               const Ic = Icons[IcName as keyof typeof Icons];
@@ -307,7 +337,7 @@ export function OverviewPage({ store, go }: Props) {
                 </div>
               );
             })}
-            {store.sessions.length === 0 && (
+            {allSessions.length === 0 && (
               <div style={{ padding: 20, textAlign: 'center', color: 'var(--ink-mute)', fontSize: 13 }}>
                 No sessions yet. Install the tracking script to start.
               </div>
@@ -319,6 +349,13 @@ export function OverviewPage({ store, go }: Props) {
   );
 }
 
+function trendSubtitle(grain: Grain, start: Date | null, end: Date) {
+  const fmtDate = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const grainLabel = grain === 'daily' ? 'Daily' : grain === 'weekly' ? 'Weekly' : 'Monthly';
+  if (!start) return `${grainLabel} session counts (all time, through ${fmtDate(end)}).`;
+  return `${grainLabel} session counts, ${fmtDate(start)} – ${fmtDate(end)}.`;
+}
+
 function Mini({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
     <div>
@@ -328,14 +365,34 @@ function Mini({ label, value, accent }: { label: string; value: string; accent?:
   );
 }
 
-function TrendChart({ trend }: { trend: { v: number; s: number }[] }) {
-  const w = 760, h = 200, pad = 24;
+function TrendChart({ trend, grain }: { trend: TrendPoint[]; grain: Grain }) {
+  const w = 760, h = 200, pad = 28;
   const maxV = Math.max(...trend.map(d => d.v), 1);
-  const xAt = (i: number) => pad + (i / (trend.length - 1)) * (w - pad * 2);
+  const xAt = (i: number) => trend.length === 1 ? w / 2 : pad + (i / (trend.length - 1)) * (w - pad * 2);
   const yAt = (v: number) => h - pad - (v / maxV) * (h - pad * 2);
   const linePath = (key: 'v' | 's') =>
     trend.map((d, i) => (i ? 'L' : 'M') + xAt(i).toFixed(1) + ',' + yAt(d[key]).toFixed(1)).join(' ');
-  if (trend.length < 2) return null;
+  if (trend.length < 2) {
+    return (
+      <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--ink-mute)', fontSize: 13 }}>
+        Not enough data points for a trend at this granularity.
+      </div>
+    );
+  }
+
+  // X-axis tick labels: show ~6 evenly spaced
+  const tickCount = Math.min(6, trend.length);
+  const tickStep = Math.max(1, Math.floor((trend.length - 1) / (tickCount - 1)));
+  const ticks: number[] = [];
+  for (let i = 0; i < trend.length; i += tickStep) ticks.push(i);
+  if (ticks[ticks.length - 1] !== trend.length - 1) ticks.push(trend.length - 1);
+
+  const fmtTick = (d: Date) => {
+    if (grain === 'monthly') return d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
+    if (grain === 'weekly') return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  };
+
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: 200 }}>
       {[0.25, 0.5, 0.75, 1].map((p, i) => (
@@ -344,6 +401,11 @@ function TrendChart({ trend }: { trend: { v: number; s: number }[] }) {
       <path d={linePath('v') + ` L${xAt(trend.length - 1)},${h - pad} L${xAt(0)},${h - pad} Z`} fill="#4c081f" opacity="0.07" />
       <path d={linePath('v')} stroke="#4c081f" strokeWidth="1.8" fill="none" />
       <path d={linePath('s')} stroke="#c89aa6" strokeWidth="1.8" fill="none" strokeDasharray="4 3" />
+      {ticks.map(i => (
+        <text key={i} x={xAt(i)} y={h - 6} textAnchor="middle" fontSize="10" fill="var(--ink-mute)">
+          {fmtTick(trend[i].date)}
+        </text>
+      ))}
     </svg>
   );
 }
