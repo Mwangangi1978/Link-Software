@@ -5,7 +5,7 @@ import {
   SlidersHorizontal, Link2, Settings, Check, X, Plus, Edit2,
   Download, ChevronDown, Copy, Search, LogOut, Lock, Eye,
   ArrowUp, ArrowDown, Users, Plug, Code2, Sparkles, Layers,
-  Mail, QrCode
+  Mail, QrCode, Palette, Upload, FileText
 } from 'lucide-react';
 
 // Re-export icons for use across pages
@@ -16,6 +16,7 @@ export const Icons = {
   ChevronDown, Copy, Search, LogOut, Lock, Eye,
   ArrowUp, ArrowDown, Users, Plug, Code: Code2,
   Sparkle: Sparkles, QR: QrCode, Mail,
+  Palette, Upload, FileText,
 };
 
 // ── Toast ──────────────────────────────────────────────────

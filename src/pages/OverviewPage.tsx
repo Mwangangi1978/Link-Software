@@ -125,17 +125,23 @@ export function OverviewPage({ store, go, dateRange }: Props) {
             ]} />
             <div style={{ flex: 1, display: 'grid', gap: 8 }}>
               {[
-                { label: 'Platforms', value: platVisits,   color: 'var(--burgundy)' },
-                { label: 'Events',    value: evtVisits,    color: 'var(--rose)' },
-                { label: 'Direct',    value: directVisits, color: '#d4b9c2' },
+                { label: 'Platforms', value: platVisits,   color: 'var(--burgundy)', hint: 'paid + organic placements' },
+                { label: 'Events',    value: evtVisits,    color: 'var(--rose)',     hint: 'partner activations' },
+                { label: 'Direct',    value: directVisits, color: '#d4b9c2',         hint: 'untagged / direct visits' },
               ].map(m => (
-                <div key={m.label} className="row" style={{ justifyContent: 'space-between', fontSize: 13 }}>
-                  <span className="row gap-8">
+                <div key={m.label} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 4, fontSize: 13 }}>
+                  <span className="row gap-8" style={{ alignItems: 'center' }}>
                     <span className="dotc" style={{ background: m.color }} />
-                    {m.label}
+                    <span>
+                      <div style={{ fontWeight: 500 }}>{m.label}</div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-mute)' }}>{m.hint}</div>
+                    </span>
                   </span>
-                  <span style={{ fontFamily: 'var(--mono)', fontVariantNumeric: 'tabular-nums' }}>
-                    {((m.value / totalMix) * 100).toFixed(1)}%
+                  <span style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontVariantNumeric: 'tabular-nums' }}>
+                    <div style={{ fontWeight: 600 }}>{fmt(m.value)}</div>
+                    <div style={{ fontSize: 10, color: 'var(--ink-mute)' }}>
+                      {((m.value / totalMix) * 100).toFixed(1)}%
+                    </div>
                   </span>
                 </div>
               ))}
@@ -366,12 +372,11 @@ function Mini({ label, value, accent }: { label: string; value: string; accent?:
 }
 
 function TrendChart({ trend, grain }: { trend: TrendPoint[]; grain: Grain }) {
-  const w = 760, h = 200, pad = 28;
+  const w = 760, h = 220, padL = 44, padR = 16, padT = 12, padB = 36;
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
   const maxV = Math.max(...trend.map(d => d.v), 1);
-  const xAt = (i: number) => trend.length === 1 ? w / 2 : pad + (i / (trend.length - 1)) * (w - pad * 2);
-  const yAt = (v: number) => h - pad - (v / maxV) * (h - pad * 2);
-  const linePath = (key: 'v' | 's') =>
-    trend.map((d, i) => (i ? 'L' : 'M') + xAt(i).toFixed(1) + ',' + yAt(d[key]).toFixed(1)).join(' ');
+  const xAt = (i: number) => trend.length === 1 ? padL + innerW / 2 : padL + (i / (trend.length - 1)) * innerW;
   if (trend.length < 2) {
     return (
       <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--ink-mute)', fontSize: 13 }}>
@@ -379,6 +384,11 @@ function TrendChart({ trend, grain }: { trend: TrendPoint[]; grain: Grain }) {
       </div>
     );
   }
+
+  // Y-axis ticks (rounded to "nice" values)
+  const niceMax = niceCeil(maxV);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(p => Math.round(niceMax * p));
+  const yScale = (v: number) => padT + innerH - (v / niceMax) * innerH;
 
   // X-axis tick labels: show ~6 evenly spaced
   const tickCount = Math.min(6, trend.length);
@@ -389,49 +399,127 @@ function TrendChart({ trend, grain }: { trend: TrendPoint[]; grain: Grain }) {
 
   const fmtTick = (d: Date) => {
     if (grain === 'monthly') return d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
-    if (grain === 'weekly') return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   };
 
+  // Use niceMax for the line scale so it lines up with the y-ticks
+  const yAtNice = (v: number) => padT + innerH - (v / niceMax) * innerH;
+  const linePathNice = (key: 'v' | 's') =>
+    trend.map((d, i) => (i ? 'L' : 'M') + xAt(i).toFixed(1) + ',' + yAtNice(d[key]).toFixed(1)).join(' ');
+
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: 200 }}>
-      {[0.25, 0.5, 0.75, 1].map((p, i) => (
-        <line key={i} x1={pad} x2={w - pad} y1={pad + (h - pad * 2) * (1 - p)} y2={pad + (h - pad * 2) * (1 - p)} stroke="#ecdfe4" strokeWidth="1" />
+    <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: 220 }} role="img" aria-label="Trend of visits and signups over time">
+      {/* Y axis label */}
+      <text x={12} y={padT + innerH / 2} fontSize="10" fill="var(--ink-mute)" textAnchor="middle"
+        transform={`rotate(-90 12 ${padT + innerH / 2})`} style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        Sessions
+      </text>
+
+      {/* Y grid + tick labels */}
+      {yTicks.map((t, i) => (
+        <g key={i}>
+          <line x1={padL} x2={w - padR} y1={yScale(t)} y2={yScale(t)} stroke="#ecdfe4" strokeWidth="1" />
+          <text x={padL - 8} y={yScale(t) + 3} textAnchor="end" fontSize="10" fill="var(--ink-mute)">
+            {t.toLocaleString('en-GB')}
+          </text>
+        </g>
       ))}
-      <path d={linePath('v') + ` L${xAt(trend.length - 1)},${h - pad} L${xAt(0)},${h - pad} Z`} fill="#4c081f" opacity="0.07" />
-      <path d={linePath('v')} stroke="#4c081f" strokeWidth="1.8" fill="none" />
-      <path d={linePath('s')} stroke="#c89aa6" strokeWidth="1.8" fill="none" strokeDasharray="4 3" />
+
+      {/* Visits area + line */}
+      <path d={linePathNice('v') + ` L${xAt(trend.length - 1)},${padT + innerH} L${xAt(0)},${padT + innerH} Z`} fill="#4c081f" opacity="0.07" />
+      <path d={linePathNice('v')} stroke="#4c081f" strokeWidth="1.8" fill="none" />
+
+      {/* Signups line */}
+      <path d={linePathNice('s')} stroke="#c89aa6" strokeWidth="1.8" fill="none" strokeDasharray="4 3" />
+
+      {/* Data points */}
+      {trend.map((d, i) => (
+        <g key={i}>
+          <circle cx={xAt(i)} cy={yAtNice(d.v)} r={2.5} fill="#4c081f">
+            <title>{fmtTick(d.date)} — {d.v} visits, {d.s} signups</title>
+          </circle>
+          <circle cx={xAt(i)} cy={yAtNice(d.s)} r={2.5} fill="#c89aa6">
+            <title>{fmtTick(d.date)} — {d.s} signups</title>
+          </circle>
+        </g>
+      ))}
+
+      {/* X tick labels */}
       {ticks.map(i => (
-        <text key={i} x={xAt(i)} y={h - 6} textAnchor="middle" fontSize="10" fill="var(--ink-mute)">
+        <text key={i} x={xAt(i)} y={h - 14} textAnchor="middle" fontSize="10" fill="var(--ink-mute)">
           {fmtTick(trend[i].date)}
         </text>
       ))}
+
+      {/* X axis label */}
+      <text x={padL + innerW / 2} y={h - 2} textAnchor="middle" fontSize="10" fill="var(--ink-mute)"
+        style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        {grain === 'daily' ? 'Day' : grain === 'weekly' ? 'Week starting' : 'Month'}
+      </text>
+
+      {/* Inline legend (top-right) */}
+      <g transform={`translate(${w - padR - 170}, ${padT + 4})`}>
+        <rect x={0} y={0} width={170} height={36} rx={6} fill="rgba(255,255,255,0.85)" stroke="var(--line-soft)" />
+        <line x1={10} x2={26} y1={12} y2={12} stroke="#4c081f" strokeWidth="2" />
+        <text x={32} y={15} fontSize="10" fill="var(--ink)">Visits</text>
+        <line x1={86} x2={102} y1={12} y2={12} stroke="#c89aa6" strokeWidth="2" strokeDasharray="3 2" />
+        <text x={108} y={15} fontSize="10" fill="var(--ink)">Signups</text>
+        <text x={10} y={28} fontSize="9" fill="var(--ink-mute)">peak: {maxV.toLocaleString('en-GB')} / bucket</text>
+      </g>
     </svg>
   );
+}
+
+// Round a max value up to a "nice" number for axis ticks (1, 2, 5 × 10^n)
+function niceCeil(v: number): number {
+  if (v <= 0) return 1;
+  const exp = Math.floor(Math.log10(v));
+  const base = Math.pow(10, exp);
+  const norm = v / base;
+  const nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+  return nice * base;
 }
 
 function Donut({ data }: { data: { id: string; label: string; value: number; color: string }[] }) {
   const total = data.reduce((a, b) => a + b.value, 0) || 1;
   const r = 50, R = 70, cx = 80, cy = 80;
   let acc = 0;
-  const arcs = data.map(d => {
+  const slices = data.map(d => {
     const a0 = (acc / total) * Math.PI * 2;
     acc += d.value;
     const a1 = (acc / total) * Math.PI * 2;
     const large = a1 - a0 > Math.PI ? 1 : 0;
     const cos0 = Math.cos(a0 - Math.PI / 2), sin0 = Math.sin(a0 - Math.PI / 2);
     const cos1 = Math.cos(a1 - Math.PI / 2), sin1 = Math.sin(a1 - Math.PI / 2);
-    return (
-      <path key={d.id} fill={d.color}
-        d={`M${cx + cos0 * R},${cy + sin0 * R} A${R},${R} 0 ${large} 1 ${cx + cos1 * R},${cy + sin1 * R} L${cx + cos1 * r},${cy + sin1 * r} A${r},${r} 0 ${large} 0 ${cx + cos0 * r},${cy + sin0 * r} Z`}
-      />
-    );
+    const mid = (a0 + a1) / 2;
+    const labelR = (R + r) / 2;
+    return {
+      ...d,
+      path: `M${cx + cos0 * R},${cy + sin0 * R} A${R},${R} 0 ${large} 1 ${cx + cos1 * R},${cy + sin1 * R} L${cx + cos1 * r},${cy + sin1 * r} A${r},${r} 0 ${large} 0 ${cx + cos0 * r},${cy + sin0 * r} Z`,
+      pct: (d.value / total) * 100,
+      labelX: cx + Math.cos(mid - Math.PI / 2) * labelR,
+      labelY: cy + Math.sin(mid - Math.PI / 2) * labelR,
+    };
   });
   return (
-    <svg viewBox="0 0 160 160" style={{ width: 140, height: 140, flexShrink: 0 }}>
-      {arcs}
-      <text x={cx} y={cy - 4} textAnchor="middle" fontSize="11" fill="var(--ink-mute)" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>Total</text>
-      <text x={cx} y={cy + 14} textAnchor="middle" fontSize="18" fontWeight="600" fill="var(--burgundy)">{total.toLocaleString('en-GB')}</text>
+    <svg viewBox="0 0 160 160" style={{ width: 150, height: 150, flexShrink: 0 }} role="img"
+      aria-label={`Source mix: ${data.map(d => `${d.label} ${Math.round((d.value / total) * 100)}%`).join(', ')}`}>
+      {slices.map(s => (
+        <g key={s.id}>
+          <path d={s.path} fill={s.color}>
+            <title>{s.label}: {s.value.toLocaleString('en-GB')} visits ({s.pct.toFixed(1)}%)</title>
+          </path>
+          {s.pct >= 8 && (
+            <text x={s.labelX} y={s.labelY + 3} textAnchor="middle" fontSize="10" fontWeight="600"
+              fill={s.color === '#d4b9c2' ? '#4c081f' : '#fff'}
+              style={{ pointerEvents: 'none' }}>
+              {s.pct.toFixed(0)}%
+            </text>
+          )}
+        </g>
+      ))}
+      <text x={cx} y={cy - 4} textAnchor="middle" fontSize="9" fill="var(--ink-mute)" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>Visits</text>
+      <text x={cx} y={cy + 12} textAnchor="middle" fontSize="16" fontWeight="600" fill="var(--burgundy)">{total.toLocaleString('en-GB')}</text>
     </svg>
   );
 }

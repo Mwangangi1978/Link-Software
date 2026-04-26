@@ -197,21 +197,53 @@ export const TRACKING_SNIPPET = `<!-- TrialMe Attribution Tracker — paste in S
             (Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
   try { sessionStorage.setItem("trialme_sid", sid); } catch (e) {}
 
+  // ── Detect link type from URL params ──────────────────────
   var hasEvent = !!params.get("event");
+  var hasPlatform = !!params.get("platform");
+  var linkType = hasEvent ? "event" : hasPlatform ? "platform" : "direct";
+
+  // ── Parse user-agent ──────────────────────────────────────
+  var ua = navigator.userAgent || "";
+  var device = /iPad|Tablet/i.test(ua) ? "tablet"
+             : /Mobi|Android|iPhone|iPod/i.test(ua) ? "mobile"
+             : "desktop";
+  var browser = /Edg\\//.test(ua) ? "Edge"
+              : /OPR\\/|Opera/.test(ua) ? "Opera"
+              : /Chrome\\//.test(ua) ? "Chrome"
+              : /Firefox\\//.test(ua) ? "Firefox"
+              : /Safari\\//.test(ua) ? "Safari"
+              : "Other";
+  var os = /iPhone|iPad|iPod/.test(ua) ? "iOS"
+         : /Android/.test(ua) ? "Android"
+         : /Windows/.test(ua) ? "Windows"
+         : /Mac OS X|Macintosh/.test(ua) ? "macOS"
+         : /Linux/.test(ua) ? "Linux"
+         : "Other";
+
+  // ── Build payload from EVERY link-generator attribute ─────
   var payload = {
     id: sid,
     status: "visit_logged",
-    link_type: hasEvent ? "event" : (params.get("platform") ? "platform" : "direct"),
+    link_type: linkType,
     platform_id: params.get("platform") || null,
     is_paid: params.get("paid") === "true",
     event_name: params.get("event") || null,
     partner: params.get("partner") || null,
     campaign: params.get("campaign") || null,
     content: params.get("content") || null,
+    term: params.get("term") || null,
     page_url: window.location.href,
     referrer_url: document.referrer || null,
+    user_agent: ua || null,
+    device_type: device,
+    browser: browser,
+    os: os,
     visit_timestamp: new Date().toISOString(),
   };
+
+  // Track time-on-page so submit_timestamp - visit_timestamp aligns with dwell time.
+  var pageEnter = Date.now();
+  try { sessionStorage.setItem("trialme_sid_ts", String(pageEnter)); } catch (e) {}
 
   fetch(ENDPOINT, {
     method: "POST",
@@ -225,10 +257,22 @@ export const TRACKING_SNIPPET = `<!-- TrialMe Attribution Tracker — paste in S
     keepalive: true,
   });
 
-  document.querySelectorAll('iframe[src*="tally.so"]').forEach(function (f) {
-    var u = new URL(f.src);
-    u.searchParams.set("trialme_sid", sid);
-    f.src = u.toString();
-  });
+  // Inject the session id into Tally iframes so the Tally webhook can mark the matching session as form_submitted.
+  function tagTallyIframes() {
+    document.querySelectorAll('iframe[src*="tally.so"]').forEach(function (f) {
+      try {
+        var u = new URL(f.src);
+        if (u.searchParams.get("trialme_sid") === sid) return;
+        u.searchParams.set("trialme_sid", sid);
+        f.src = u.toString();
+      } catch (e) {}
+    });
+  }
+  tagTallyIframes();
+  // Re-tag for late-rendered iframes (Squarespace can hydrate after DOMContentLoaded).
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", tagTallyIframes);
+  }
+  setTimeout(tagTallyIframes, 1200);
 })();
 <\/script>`;

@@ -1,10 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { Store } from '../App';
 import { PageHead, Tag, FakeQR, Switch, Icons } from '../components/dashboard/shared';
 import { supabase } from '../lib/supabase';
 import { slug, fmt } from '../lib/data';
 import { PLATFORMS } from '../lib/types';
-import { QRCodeSVG } from 'qrcode.react';
+import { QRCodeCanvas } from 'qrcode.react';
+import jsPDF from 'jspdf';
+
+const isValidHex = (v: string) => /^#[0-9A-Fa-f]{6}$/.test(v);
+const hexToRgb = (hex: string) => {
+  const n = hex.replace('#', '');
+  const i = parseInt(n, 16);
+  return { r: (i >> 16) & 255, g: (i >> 8) & 255, b: i & 255 };
+};
 
 interface Props {
   store: Store;
@@ -29,6 +37,15 @@ export function GeneratorPage({ store, toast, reload }: Props) {
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // QR styling state
+  const [bgColor, setBgColor] = useState('#ffffff');
+  const [fgColor, setFgColor] = useState('#2a0612');
+  const [bgInput, setBgInput] = useState('#ffffff');
+  const [fgInput, setFgInput] = useState('#2a0612');
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const qrCanvasWrapRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const generatedUrl = useMemo(() => {
     if (linkType === 'platform') {
       const t = store.trials.find(x => x.id === pf.trialId);
@@ -36,6 +53,7 @@ export function GeneratorPage({ store, toast, reload }: Props) {
       const u = new URL('https://trialme.eu/' + t.slug);
       u.searchParams.set('platform', pf.platformId);
       u.searchParams.set('paid', pf.isPaid ? 'true' : 'false');
+      u.searchParams.set('trial', t.slug);
       const camp = store.campaigns.find(c => c.id === pf.campaignId);
       const cont = store.contentVariants.find(c => c.id === pf.contentId);
       if (camp) u.searchParams.set('campaign', slug(camp.name));
@@ -49,6 +67,7 @@ export function GeneratorPage({ store, toast, reload }: Props) {
     const u = new URL('https://trialme.eu/' + t.slug);
     u.searchParams.set('event', slug(ev.name));
     u.searchParams.set('partner', slug(ev.partner));
+    u.searchParams.set('trial', t.slug);
     return u.toString();
   }, [linkType, pf, ef, store]);
 
@@ -59,9 +78,110 @@ export function GeneratorPage({ store, toast, reload }: Props) {
     setTimeout(() => setCopied(false), 1600);
   };
 
+  // Build a flat PNG canvas of the QR + optional centred logo (used by PNG/PDF/save)
+  const buildCompositeCanvas = (): Promise<HTMLCanvasElement> => {
+    return new Promise((resolve, reject) => {
+      const qrCanvas = qrCanvasWrapRef.current?.querySelector('canvas') as HTMLCanvasElement | null;
+      if (!qrCanvas) return reject(new Error('QR canvas not found'));
+      const qrSize = qrCanvas.width;
+      const pagePadding = Math.round(qrSize * 0.18);
+      const size = qrSize + pagePadding * 2;
+      const out = document.createElement('canvas');
+      out.width = size; out.height = size;
+      const ctx = out.getContext('2d')!;
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(qrCanvas, pagePadding, pagePadding);
+
+      if (!logoUrl) return resolve(out);
+
+      const img = new Image();
+      img.onload = () => {
+        const logoSize = Math.round(qrSize * 0.22);
+        const pad = 5;
+        const x = pagePadding + (qrSize - logoSize) / 2;
+        const y = pagePadding + (qrSize - logoSize) / 2;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        if ((ctx as any).roundRect) {
+          (ctx as any).roundRect(x - pad, y - pad, logoSize + pad * 2, logoSize + pad * 2, 4);
+        } else {
+          ctx.rect(x - pad, y - pad, logoSize + pad * 2, logoSize + pad * 2);
+        }
+        ctx.fill();
+        ctx.drawImage(img, x, y, logoSize, logoSize);
+        resolve(out);
+      };
+      img.onerror = reject;
+      img.src = logoUrl;
+    });
+  };
+
+  const downloadPNG = async () => {
+    if (!generatedUrl) return;
+    try {
+      const canvas = await buildCompositeCanvas();
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = 'trialme-qr.png';
+      a.click();
+      toast('PNG exported');
+    } catch (err) {
+      console.error('PNG export failed:', err);
+      toast('PNG export failed');
+    }
+  };
+
+  const downloadPDF = async () => {
+    if (!generatedUrl) return;
+    try {
+      const canvas = await buildCompositeCanvas();
+      const data = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const W = pdf.internal.pageSize.getWidth();
+      const H = pdf.internal.pageSize.getHeight();
+      const { r, g, b } = hexToRgb(bgColor);
+      pdf.setFillColor(r, g, b);
+      pdf.rect(0, 0, W, H, 'F');
+      const imgSize = 130;
+      pdf.addImage(data, 'PNG', (W - imgSize) / 2, (H - imgSize) / 2, imgSize, imgSize);
+      pdf.save('trialme-qr.pdf');
+      toast('PDF exported');
+    } catch (err) {
+      console.error('PDF export failed:', err);
+      toast('PDF export failed');
+    }
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => setLogoUrl(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
   const onSave = async () => {
     if (!generatedUrl) { toast('Complete the form first'); return; }
+
+    // Per-type validation so RLS / NOT-NULL never silently chews the row
+    if (linkType === 'platform') {
+      if (!pf.trialId) { toast('Pick a trial'); return; }
+      if (pf.isPaid && !pf.amountSpent) { toast('Enter the amount spent'); return; }
+    } else {
+      if (!ef.eventId) { toast('Pick an event'); return; }
+    }
+
     setSaving(true);
+
+    // Embed a snapshot of the styled QR so the saved row carries its rendered output
+    let qrDataUrl: string | null = null;
+    try {
+      const canvas = await buildCompositeCanvas();
+      qrDataUrl = canvas.toDataURL('image/png');
+    } catch {
+      // QR canvas not yet mounted is non-fatal; just save the row without an image
+    }
 
     const ev = linkType === 'event' ? store.events.find(x => x.id === ef.eventId) : null;
 
@@ -76,12 +196,22 @@ export function GeneratorPage({ store, toast, reload }: Props) {
       trial_id:           linkType === 'platform' ? pf.trialId : (ev?.trial_id ?? null),
       content_variant_id: linkType === 'platform' ? (pf.contentId || null) : null,
       campaign_id:        linkType === 'platform' ? (pf.campaignId || null) : null,
-      qr_code_data:       null,
+      qr_code_data:       qrDataUrl,
     };
 
-    await (supabase.from('tracked_links') as any).insert(row);
-    await reload();
+    const { error } = await (supabase.from('tracked_links') as any).insert(row);
     setSaving(false);
+
+    if (error) {
+      console.error('tracked_links insert failed:', error);
+      const msg = /row-level security/i.test(error.message)
+        ? 'Save blocked: only admins can create tracked links.'
+        : 'Save failed: ' + error.message;
+      toast(msg);
+      return;
+    }
+
+    await reload();
     toast('Tracked link saved');
   };
 
@@ -267,38 +397,150 @@ export function GeneratorPage({ store, toast, reload }: Props) {
           <div className="card">
             <div className="card-head">
               <div className="head-text">
-                <h3>QR code</h3>
-                <div className="sub">Branded with the TrialMe mark — ready to print on flyers.</div>
+                <h3>QR <em>code</em></h3>
+                <div className="sub">Customise colours, drop in a logo, then export as PNG or PDF.</div>
               </div>
             </div>
-            <div className="card-body" style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
-              <div style={{ background: 'var(--cream-2)', padding: 18, borderRadius: 12 }}>
+            <div className="card-body" style={{ display: 'grid', gap: 16 }}>
+              {/* Live preview */}
+              <div
+                ref={qrCanvasWrapRef}
+                style={{
+                  display: 'grid', placeItems: 'center', padding: 22,
+                  background: bgColor, borderRadius: 12,
+                  border: '1px solid var(--line)',
+                }}
+              >
                 {generatedUrl ? (
-                  <QRCodeSVG value={generatedUrl} size={168} bgColor="#fff" fgColor="#2a0612" />
+                  <div style={{ position: 'relative', display: 'inline-flex' }}>
+                    <QRCodeCanvas
+                      value={generatedUrl}
+                      size={168}
+                      level="H"
+                      marginSize={2}
+                      bgColor={bgColor}
+                      fgColor={fgColor}
+                    />
+                    {logoUrl && (
+                      <img
+                        src={logoUrl}
+                        alt=""
+                        style={{
+                          position: 'absolute', top: '50%', left: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          width: 38, height: 38, padding: 4,
+                          background: '#fff', borderRadius: 4,
+                          objectFit: 'contain',
+                        }}
+                      />
+                    )}
+                  </div>
+                ) : <FakeQR size={168} />}
+              </div>
+
+              {/* Color pickers */}
+              <div className="color-control-row">
+                <div className="color-control">
+                  <div className="color-label">
+                    <Icons.Palette size={13} />
+                    <span>Background</span>
+                  </div>
+                  <div className="color-input-shell" title="Pick background colour">
+                    <input
+                      type="color"
+                      value={bgColor}
+                      onChange={e => { setBgColor(e.target.value); setBgInput(e.target.value); }}
+                      style={{ width: 26, height: 26, padding: 0, border: 'none', borderRadius: 4, cursor: 'pointer', background: 'none', flexShrink: 0 }}
+                    />
+                    <input
+                      type="text"
+                      value={bgInput}
+                      onChange={e => {
+                        const v = e.target.value;
+                        setBgInput(v);
+                        if (isValidHex(v)) setBgColor(v);
+                      }}
+                      onBlur={() => { if (!isValidHex(bgInput)) setBgInput(bgColor); }}
+                      maxLength={7}
+                      spellCheck={false}
+                      className="color-hex-input"
+                    />
+                  </div>
+                </div>
+                <div className="color-control">
+                  <div className="color-label">
+                    <Icons.Palette size={13} />
+                    <span>Foreground</span>
+                  </div>
+                  <div className="color-input-shell" title="Pick foreground colour">
+                    <input
+                      type="color"
+                      value={fgColor}
+                      onChange={e => { setFgColor(e.target.value); setFgInput(e.target.value); }}
+                      style={{ width: 26, height: 26, padding: 0, border: 'none', borderRadius: 4, cursor: 'pointer', background: 'none', flexShrink: 0 }}
+                    />
+                    <input
+                      type="text"
+                      value={fgInput}
+                      onChange={e => {
+                        const v = e.target.value;
+                        setFgInput(v);
+                        if (isValidHex(v)) setFgColor(v);
+                      }}
+                      onBlur={() => { if (!isValidHex(fgInput)) setFgInput(fgColor); }}
+                      maxLength={7}
+                      spellCheck={false}
+                      className="color-hex-input"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Logo upload */}
+              <div className="logo-upload-card">
+                <div className="logo-upload-header">
+                  <Icons.Upload size={14} />
+                  <div className="qr-customization-title">Logo customization (optional)</div>
+                </div>
+                {!logoUrl ? (
+                  <label className="upload-dropzone">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoUpload}
+                      style={{ display: 'none' }}
+                    />
+                    <div className="upload-title">Click to upload logo</div>
+                    <div className="upload-subtext">PNG, JPG or SVG, centred over the QR</div>
+                  </label>
                 ) : (
-                  <FakeQR size={168} />
+                  <div className="logo-uploaded-row">
+                    <span className="upload-title">Logo uploaded</span>
+                    <button
+                      className="logo-remove-btn"
+                      onClick={() => {
+                        setLogoUrl(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                    >
+                      <Icons.X size={11} />
+                      Remove
+                    </button>
+                  </div>
                 )}
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>Embedded link</div>
-                <div style={{ fontSize: 12, color: 'var(--burgundy)', fontFamily: 'var(--mono)', wordBreak: 'break-all', marginBottom: 12 }}>
-                  {(generatedUrl || '—').slice(0, 80)}{generatedUrl.length > 80 ? '…' : ''}
-                </div>
-                <div className="row gap-8">
-                  <button className="btn btn-primary btn-sm" onClick={() => {
-                    if (!generatedUrl) return;
-                    const svg = document.querySelector('.qr-svg') as SVGElement;
-                    if (!svg) return;
-                    const blob = new Blob([svg.outerHTML], { type: 'image/svg+xml' });
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = 'qr-code.svg';
-                    a.click();
-                    toast('QR exported as SVG');
-                  }}>
-                    <Icons.Download size={13} /> Download SVG
-                  </button>
-                </div>
+
+              {/* Export actions */}
+              <div className="action-row">
+                <button className="action-btn" onClick={downloadPNG} disabled={!generatedUrl}>
+                  <Icons.Download size={16} />
+                  <span>Download PNG</span>
+                </button>
+                <button className="action-btn" onClick={downloadPDF} disabled={!generatedUrl}>
+                  <Icons.FileText size={16} />
+                  <span>Export PDF</span>
+                </button>
               </div>
             </div>
           </div>
