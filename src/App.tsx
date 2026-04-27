@@ -187,10 +187,10 @@ export default function App() {
 
   const renderCurrentPage = () => {
     if (page === 'overview') return <OverviewPage store={store} go={setPage as (p: string) => void} dateRange={dateRange} />;
-    if (page === 'platforms') return <PlatformsPage store={store} />;
-    if (page === 'events') return <EventsPage store={store} />;
-    if (page === 'trials') return <TrialsPage store={store} />;
-    if (page === 'variations') return <ContentVariationsPage store={store} />;
+    if (page === 'platforms') return <PlatformsPage store={store} dateRange={dateRange} />;
+    if (page === 'events') return <EventsPage store={store} dateRange={dateRange} />;
+    if (page === 'trials') return <TrialsPage store={store} dateRange={dateRange} />;
+    if (page === 'variations') return <ContentVariationsPage store={store} dateRange={dateRange} />;
     if (page === 'config') return <ConfigPage store={store} setStore={setStore} toast={toast} reload={loadData} />;
     if (page === 'generator') return <GeneratorPage store={store} setStore={setStore} toast={toast} reload={loadData} />;
     if (page === 'settings') return <SettingsPage store={store} toast={toast} />;

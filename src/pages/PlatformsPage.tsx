@@ -4,15 +4,21 @@ import {
   PageHead, Tag, ConvCell, CpsCell, ThSort,
   TableToolbar, ChipGroup, SearchBox, ExportCsv,
   CompareControl, ComparePanel, Empty, Icons,
+  type DateRangeId,
 } from '../components/dashboard/shared';
-import { aggPlatformRows, fmt } from '../lib/data';
+import { aggPlatformRows, fmt, dateRangeToWindow, filterSessionsByWindow, filterLinksByWindow } from '../lib/data';
 import type { AggPlatformRow } from '../lib/data';
 import { PLATFORM_MAP } from '../lib/types';
 
-interface Props { store: Store; }
+interface Props { store: Store; dateRange: DateRangeId; }
 
-export function PlatformsPage({ store }: Props) {
-  const { sessions, trackedLinks, trials, loading } = store;
+export function PlatformsPage({ store, dateRange }: Props) {
+  const { sessions: allSessions, trackedLinks: allLinks, trials, loading } = store;
+
+  const window = useMemo(() => dateRangeToWindow(dateRange), [dateRange]);
+  const sessions     = useMemo(() => filterSessionsByWindow(allSessions, window), [allSessions, window]);
+  const trackedLinks = useMemo(() => filterLinksByWindow(allLinks, window),       [allLinks, window]);
+
   const all = useMemo(() => aggPlatformRows(sessions, trackedLinks, trials), [sessions, trackedLinks, trials]);
 
   const [paidFilter, setPaidFilter] = useState('all');

@@ -3,14 +3,18 @@ import type { Store } from '../App';
 import {
   PageHead, ConvCell, ThSort, TableToolbar, SearchBox, ExportCsv,
   CompareControl, ComparePanel, Empty, Icons,
+  type DateRangeId,
 } from '../components/dashboard/shared';
-import { aggContentVariationRows, fmt } from '../lib/data';
+import { aggContentVariationRows, fmt, dateRangeToWindow, filterSessionsByWindow } from '../lib/data';
 import type { AggContentVariationRow } from '../lib/data';
 
-interface Props { store: Store; }
+interface Props { store: Store; dateRange: DateRangeId; }
 
-export function ContentVariationsPage({ store }: Props) {
-  const { sessions, trackedLinks, trials, contentVariants, loading } = store;
+export function ContentVariationsPage({ store, dateRange }: Props) {
+  const { sessions: allSessions, trackedLinks, trials, contentVariants, loading } = store;
+
+  const window   = useMemo(() => dateRangeToWindow(dateRange),                [dateRange]);
+  const sessions = useMemo(() => filterSessionsByWindow(allSessions, window), [allSessions, window]);
 
   const all = useMemo(
     () => aggContentVariationRows(sessions, contentVariants, trackedLinks, trials),

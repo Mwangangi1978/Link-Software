@@ -4,14 +4,20 @@ import {
   PageHead, Tag, ConvCell, CpsCell, ThSort,
   TableToolbar, SearchBox, ExportCsv,
   CompareControl, ComparePanel, Empty, Icons,
+  type DateRangeId,
 } from '../components/dashboard/shared';
-import { aggEventRows, fmt } from '../lib/data';
+import { aggEventRows, fmt, dateRangeToWindow, filterSessionsByWindow, filterEventsByWindow } from '../lib/data';
 import type { AggEventRow } from '../lib/data';
 
-interface Props { store: Store; }
+interface Props { store: Store; dateRange: DateRangeId; }
 
-export function EventsPage({ store }: Props) {
-  const { sessions, events, trials, loading } = store;
+export function EventsPage({ store, dateRange }: Props) {
+  const { sessions: allSessions, events: allEvents, trials, loading } = store;
+
+  const window = useMemo(() => dateRangeToWindow(dateRange), [dateRange]);
+  const sessions = useMemo(() => filterSessionsByWindow(allSessions, window), [allSessions, window]);
+  const events   = useMemo(() => filterEventsByWindow(allEvents, window),     [allEvents, window]);
+
   const all = useMemo(() => aggEventRows(sessions, events, trials), [sessions, events, trials]);
 
   const [trialFilter, setTrialFilter] = useState('all');

@@ -4,15 +4,23 @@ import {
   PageHead, Tag, ConvCell, CpsCell, ThSort,
   TableToolbar, SearchBox, ExportCsv,
   CompareControl, ComparePanel, Icons,
+  type DateRangeId,
 } from '../components/dashboard/shared';
-import { aggTrialRows, fmt } from '../lib/data';
+import { aggTrialRows, fmt, dateRangeToWindow, filterSessionsByWindow, filterEventsByWindow, filterLinksByWindow } from '../lib/data';
 import type { AggTrialRow } from '../lib/data';
 import { PLATFORM_MAP } from '../lib/types';
+import type { Session } from '../lib/types';
 
-interface Props { store: Store; }
+interface Props { store: Store; dateRange: DateRangeId; }
 
-export function TrialsPage({ store }: Props) {
-  const { sessions, events, trials, trackedLinks, loading } = store;
+export function TrialsPage({ store, dateRange }: Props) {
+  const { sessions: allSessions, events: allEvents, trials, trackedLinks: allLinks, loading } = store;
+
+  const window       = useMemo(() => dateRangeToWindow(dateRange),                [dateRange]);
+  const sessions     = useMemo(() => filterSessionsByWindow(allSessions, window), [allSessions, window]);
+  const events       = useMemo(() => filterEventsByWindow(allEvents, window),     [allEvents, window]);
+  const trackedLinks = useMemo(() => filterLinksByWindow(allLinks, window),       [allLinks, window]);
+
   const all = useMemo(() => aggTrialRows(sessions, events, trials, trackedLinks), [sessions, events, trials, trackedLinks]);
 
   const [search, setSearch] = useState('');
@@ -152,7 +160,7 @@ export function TrialsPage({ store }: Props) {
                   {expanded === r.id && (
                     <tr key={r.id + '_exp'}>
                       <td colSpan={9} style={{ background: 'var(--cream-2)', padding: 0 }}>
-                        <TrialBreakdown trial={r} store={store} />
+                        <TrialBreakdown trial={r} sessions={sessions} />
                       </td>
                     </tr>
                   )}
@@ -166,8 +174,8 @@ export function TrialsPage({ store }: Props) {
   );
 }
 
-function TrialBreakdown({ trial, store }: { trial: AggTrialRow; store: Store }) {
-  const trialSessions = store.sessions.filter(s => s.trial_id === trial.id);
+function TrialBreakdown({ trial, sessions }: { trial: AggTrialRow; sessions: Session[] }) {
+  const trialSessions = sessions.filter(s => s.trial_id === trial.id);
 
   // Platform breakdown
   const byPlat: Record<string, { visits: number; signups: number; isPaid: boolean }> = {};
