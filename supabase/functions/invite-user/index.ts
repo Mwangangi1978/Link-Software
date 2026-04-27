@@ -31,15 +31,17 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    // Verify caller is an admin
+    // Verify caller is the head admin. Inviting (and removing) members is
+    // intentionally locked to head_admin only — regular admins can manage
+    // configuration and links but not workspace membership.
     const { data: callerProfile } = await supabaseAdmin
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single()
 
-    if (!['head_admin', 'admin'].includes(callerProfile?.role ?? '')) {
-      return json({ error: 'Only admin users can invite users' }, 403)
+    if (callerProfile?.role !== 'head_admin') {
+      return json({ error: 'Only the head admin can invite members' }, 403)
     }
 
     const { email, role = 'viewer', full_name } = await req.json()

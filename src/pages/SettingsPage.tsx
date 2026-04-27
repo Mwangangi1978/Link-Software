@@ -178,6 +178,8 @@ function TeamSection({ toast }: { toast: (m: string) => void }) {
   const [members, setMembers] = useState<Profile[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<Profile | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const loadMembers = async () => {
     setLoadingMembers(true);
@@ -190,7 +192,16 @@ function TeamSection({ toast }: { toast: (m: string) => void }) {
 
   const handleRemove = async (id: string) => {
     if (id === user?.id) { toast('You cannot remove yourself'); return; }
-    await (supabase.from('profiles') as any).delete().eq('id', id);
+    setRemoving(true);
+    const { error } = await (supabase.from('profiles') as any).delete().eq('id', id);
+    setRemoving(false);
+    if (error) {
+      toast(/row-level security/i.test(error.message)
+        ? 'Only the head admin can remove members.'
+        : 'Remove failed: ' + error.message);
+      return;
+    }
+    setRemoveTarget(null);
     toast('Member removed');
     loadMembers();
   };
@@ -210,9 +221,9 @@ function TeamSection({ toast }: { toast: (m: string) => void }) {
             <Icons.Users size={16} style={{ color: 'var(--burgundy)' }} />
             Team
           </h3>
-          <div className="sub">Invite-only access. Only admins can invite new members.</div>
+          <div className="sub">Invite-only access. Only the head admin can add or remove members.</div>
         </div>
-        {isAdmin && (
+        {isHeadAdmin && (
           <button
             className="btn btn-primary"
             onClick={() => setShowInvite(true)}
@@ -231,12 +242,12 @@ function TeamSection({ toast }: { toast: (m: string) => void }) {
               <th>Member</th>
               <th>Role</th>
               <th>Joined</th>
-              {isAdmin && <th style={{ width: 80 }}></th>}
+              {isHeadAdmin && <th style={{ width: 80 }}></th>}
             </tr>
           </thead>
           <tbody>
             {loadingMembers ? (
-              <tr><td colSpan={isAdmin ? 4 : 3} style={{ color: 'var(--ink-mute)', textAlign: 'center', padding: '24px 0' }}>Loading…</td></tr>
+              <tr><td colSpan={isHeadAdmin ? 4 : 3} style={{ color: 'var(--ink-mute)', textAlign: 'center', padding: '24px 0' }}>Loading…</td></tr>
             ) : members.map(m => (
               <tr key={m.id} style={{ height: 44 }}>
                 <td>
@@ -281,12 +292,12 @@ function TeamSection({ toast }: { toast: (m: string) => void }) {
                 <td style={{ fontSize: 12, color: 'var(--ink-mute)' }}>
                   {new Date(m.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </td>
-                {isAdmin && (
+                {isHeadAdmin && (
                   <td>
                     {m.id !== user?.id && (
                       <button
                         className="btn-icon"
-                        onClick={() => handleRemove(m.id)}
+                        onClick={() => setRemoveTarget(m)}
                         title="Remove member"
                         style={{ color: 'var(--bad)' }}
                       >
@@ -308,6 +319,59 @@ function TeamSection({ toast }: { toast: (m: string) => void }) {
           allowHeadAdmin={isHeadAdmin}
         />
       )}
+
+      {removeTarget && (
+        <ConfirmRemoveModal
+          member={removeTarget}
+          loading={removing}
+          onClose={() => { if (!removing) setRemoveTarget(null); }}
+          onConfirm={() => handleRemove(removeTarget.id)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Confirm Remove Modal ────────────────────────────────────
+function ConfirmRemoveModal({
+  member,
+  loading,
+  onClose,
+  onConfirm,
+}: {
+  member: Profile;
+  loading: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const displayName = member.full_name || member.email;
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+        <div className="modal-head">
+          <div className="title">Remove member</div>
+          <div className="sub">This action cannot be undone.</div>
+        </div>
+        <div style={{ padding: '18px 20px', fontSize: 13, color: 'var(--ink-soft)', lineHeight: 1.55 }}>
+          Are you sure you want to remove <strong style={{ color: 'var(--ink)' }}>{displayName}</strong>?
+          {member.full_name && (
+            <div style={{ fontSize: 12, color: 'var(--ink-mute)', fontFamily: 'var(--mono)', marginTop: 4 }}>{member.email}</div>
+          )}
+          <div style={{ marginTop: 10 }}>They will lose access to the workspace immediately.</div>
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>Cancel</button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onConfirm}
+            disabled={loading}
+            style={{ background: 'var(--bad)', borderColor: 'var(--bad)' }}
+          >
+            {loading ? 'Removing…' : 'Remove member'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
