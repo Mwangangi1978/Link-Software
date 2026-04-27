@@ -31,7 +31,7 @@ export function SignInPage() {
 
       <div className="signin-card">
         <div className="signin-brand">
-          <div className="sb-mark" style={{ width: 46, height: 46, fontSize: 28, flexShrink: 0 }}>t</div>
+          <img src="/trialme_logo.jpg" alt="TrialMe" className="sb-mark" style={{ width: 46, height: 46 }} />
           <div>
             <div className="signin-wordmark">
               Trial<em>Me</em>

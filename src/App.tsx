@@ -11,7 +11,7 @@ import { OverviewPage } from './pages/OverviewPage';
 import { PlatformsPage } from './pages/PlatformsPage';
 import { EventsPage } from './pages/EventsPage';
 import { TrialsPage } from './pages/TrialsPage';
-import { FunnelPage } from './pages/FunnelPage';
+import { ContentVariationsPage } from './pages/ContentVariationsPage';
 import { ConfigPage } from './pages/ConfigPage';
 import { GeneratorPage } from './pages/GeneratorPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -32,7 +32,7 @@ const PAGES = [
   { id: 'platforms', label: 'Platforms',       icon: 'Megaphone' as const,  crumb: ['Dashboard', 'Platforms'],      adminOnly: false },
   { id: 'events',    label: 'Events',          icon: 'Building' as const,   crumb: ['Dashboard', 'Events'],         adminOnly: false },
   { id: 'trials',    label: 'Trials',          icon: 'Microscope' as const, crumb: ['Dashboard', 'Trials'],         adminOnly: false },
-  { id: 'funnel',    label: 'Funnel',          icon: 'Funnel' as const,     crumb: ['Dashboard', 'Funnel'],         adminOnly: false },
+  { id: 'variations', label: 'Content variations', icon: 'Sparkle' as const, crumb: ['Dashboard', 'Content variations'], adminOnly: false },
   { id: 'config',    label: 'Configuration',   icon: 'Sliders' as const,    crumb: ['Workspace', 'Configuration'],  adminOnly: true, divide: true },
   { id: 'generator', label: 'Link Generator',  icon: 'Link' as const,       crumb: ['Workspace', 'Link Generator'], adminOnly: true },
   { id: 'settings',  label: 'Settings',        icon: 'Settings' as const,   crumb: ['Workspace', 'Settings'],       adminOnly: true },
@@ -105,7 +105,7 @@ export default function App() {
         background: 'var(--cream)',
       }}>
         <div style={{ textAlign: 'center' }}>
-          <div className="sb-mark" style={{ width: 48, height: 48, fontSize: 30, margin: '0 auto 12px' }}>t</div>
+          <img src="/trialme_logo.jpg" alt="TrialMe" className="sb-mark" style={{ width: 48, height: 48, margin: '0 auto 12px' }} />
           <div style={{ fontSize: 13, color: 'var(--ink-mute)' }}>Loading…</div>
         </div>
       </div>
@@ -190,7 +190,7 @@ export default function App() {
     if (page === 'platforms') return <PlatformsPage store={store} />;
     if (page === 'events') return <EventsPage store={store} />;
     if (page === 'trials') return <TrialsPage store={store} />;
-    if (page === 'funnel') return <FunnelPage store={store} />;
+    if (page === 'variations') return <ContentVariationsPage store={store} />;
     if (page === 'config') return <ConfigPage store={store} setStore={setStore} toast={toast} reload={loadData} />;
     if (page === 'generator') return <GeneratorPage store={store} setStore={setStore} toast={toast} reload={loadData} />;
     if (page === 'settings') return <SettingsPage store={store} toast={toast} />;
@@ -204,7 +204,7 @@ export default function App() {
       {/* Sidebar */}
       <aside className="dash-sidebar">
         <div className="sb-brand">
-          <div className="sb-mark">t</div>
+          <img src="/trialme_logo.jpg" alt="TrialMe" className="sb-mark" />
           <div className="sb-wordmark">
             <span className="name">Trial<em>Me</em></span>
             <span className="sub">Attribution</span>

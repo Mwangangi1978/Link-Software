@@ -92,18 +92,11 @@ a { color: inherit; text-decoration: none; }
 }
 .sb-mark {
   width: 34px; height: 34px;
+  flex-shrink: 0;
   border-radius: 10px;
-  background: linear-gradient(135deg, #f6c8d0 0%, #c89aa6 100%);
-  color: var(--burgundy);
-  display: grid; place-items: center;
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 22px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.02em;
+  object-fit: cover;
+  display: block;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
-  flex: 0 0 34px;
 }
 .sb-wordmark { display: flex; flex-direction: column; line-height: 1.1; }
 .sb-wordmark .name { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; color: #fff; }
@@ -420,24 +413,6 @@ a { color: inherit; text-decoration: none; }
   border-radius: 10px; padding: 14px; display: grid; gap: 10px;
   margin: 10px 16px 16px;
 }
-
-/* ── Funnel ── */
-.funnel-stage {
-  margin: 0 auto;
-  background: linear-gradient(180deg, var(--burgundy) 0%, var(--accent) 100%);
-  color: #fff; padding: 22px 24px; text-align: center;
-  box-shadow: var(--shadow-sm);
-}
-.funnel-drop {
-  text-align: center; color: var(--ink-soft); font-size: 13px;
-  padding: 8px 0; position: relative;
-}
-.funnel-drop::before, .funnel-drop::after {
-  content: ''; position: absolute; top: 50%; height: 1px; background: var(--line);
-  width: calc(50% - 100px);
-}
-.funnel-drop::before { left: 0; }
-.funnel-drop::after { right: 0; }
 
 /* ── Code Block ── */
 pre.code {

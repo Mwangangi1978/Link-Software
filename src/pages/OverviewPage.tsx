@@ -294,7 +294,7 @@ export function OverviewPage({ store, go, dateRange }: Props) {
               ['platforms', 'Megaphone', 'Platforms',      'Organic & paid placement performance'],
               ['events',    'Building',  'Events',         'University + partner activations'],
               ['trials',    'Microscope','Trials',         'Per-trial roll-up across all sources'],
-              ['funnel',    'Funnel',    'Funnel',         'Visit → form submission drop-off'],
+              ['variations','Sparkle',   'Content variations', 'Compare copy/angle performance'],
               ['generator', 'Link',      'Link generator', 'Build a tracked URL or QR code'],
             ].map(([id, ic, label, sub]) => {
               const Ic = Icons[ic as keyof typeof Icons];

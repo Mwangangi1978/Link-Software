@@ -1,7 +1,7 @@
 // Shared UI primitives for the Attribution Dashboard
 import React, { useEffect, useState } from 'react';
 import {
-  Megaphone, Building2, Microscope, Filter,
+  Megaphone, Building2, Microscope,
   SlidersHorizontal, Link2, Settings, Check, X, Plus, Edit2,
   Download, ChevronDown, Copy, Search, LogOut, Lock, Eye,
   ArrowUp, ArrowDown, Users, Plug, Code2, Sparkles, Layers,
@@ -11,7 +11,7 @@ import {
 // Re-export icons for use across pages
 export const Icons = {
   Layers, Megaphone, Building: Building2, Microscope,
-  Funnel: Filter, Sliders: SlidersHorizontal, Link: Link2,
+  Sliders: SlidersHorizontal, Link: Link2,
   Settings, Check, X, Plus, Edit: Edit2, Download,
   ChevronDown, Copy, Search, LogOut, Lock, Eye,
   ArrowUp, ArrowDown, Users, Plug, Code: Code2,
@@ -398,43 +398,3 @@ export function Kpi({ label, value, delta, sub, down, feature }: KpiProps) {
   );
 }
 
-// ── Fake QR (design placeholder) ──────────────────────────
-export function FakeQR({ size = 168 }: { size?: number }) {
-  const cells: boolean[] = [];
-  for (let i = 0; i < 21 * 21; i++) {
-    const x = i % 21, y = Math.floor(i / 21);
-    const inFinder = (cx: number, cy: number) => x >= cx && x < cx + 7 && y >= cy && y < cy + 7;
-    const finderPx = (cx: number, cy: number) => {
-      const rx = x - cx, ry = y - cy;
-      return rx === 0 || rx === 6 || ry === 0 || ry === 6 || (rx >= 2 && rx <= 4 && ry >= 2 && ry <= 4);
-    };
-    let on: boolean;
-    if (inFinder(0,0)) on = finderPx(0,0);
-    else if (inFinder(14,0)) on = finderPx(14,0);
-    else if (inFinder(0,14)) on = finderPx(0,14);
-    else on = ((x * 31 + y * 17 + 49) % 5) < 2;
-    cells.push(on);
-  }
-  const cell = size / 21;
-  return (
-    <div style={{ position: 'relative', width: size, height: size }}>
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(21, ${cell}px)`, background: '#fff' }}>
-        {cells.map((on, i) => <div key={i} style={{ width: cell, height: cell, background: on ? '#2a0612' : '#fff' }} />)}
-      </div>
-      <div style={{
-        position: 'absolute', top: '50%', left: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: 38, height: 38, borderRadius: 8,
-        background: '#fff', display: 'grid', placeItems: 'center',
-        boxShadow: '0 0 0 4px #fff',
-      }}>
-        <div style={{
-          width: 30, height: 30, borderRadius: 6,
-          background: 'linear-gradient(135deg, #4c081f, #8b0542)',
-          color: '#f3d9df', display: 'grid', placeItems: 'center',
-          fontFamily: 'Instrument Serif, serif', fontStyle: 'italic', fontSize: 18,
-        }}>t</div>
-      </div>
-    </div>
-  );
-}

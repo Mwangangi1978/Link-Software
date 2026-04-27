@@ -1,7 +1,7 @@
 // Data aggregation helpers that turn raw Supabase rows into dashboard-ready shapes
 // Mirrors the window.agg object from the design prototype.
 
-import type { Session, TrackedLink, Trial, Event, Platform } from './types';
+import type { Session, TrackedLink, Trial, Event, Platform, ContentVariant } from './types';
 import { PLATFORM_MAP } from './types';
 
 export function fmt(n: number | null | undefined, type: 'num' | 'gbp' | 'pct' = 'num', digits = 1): string {
@@ -188,6 +188,19 @@ export interface AggEventRow {
   cps: number;
 }
 
+export interface AggContentVariationRow {
+  key: string;
+  variantId: string | null;     // null = orphan (slug seen in sessions but no matching variant)
+  variantName: string;
+  slug: string;                 // the URL-stamped slug (matches sessions.content)
+  visits: number;
+  signups: number;
+  conv: number;
+  linksCreated: number;         // tracked_links rows tagged with this variant
+  topPlatform: string;          // platform with most signups for this variation
+  topTrial: string;             // trial with most signups for this variation
+}
+
 export interface AggTrialRow extends Trial {
   visits: number;
   signups: number;
@@ -303,6 +316,91 @@ export function aggEventRows(sessions: Session[], events: Event[], trials: Trial
       cps,
     };
   }).sort((a, b) => b.signups - a.signups);
+}
+
+// Aggregate sessions by the content slug stamped in each tracked URL. The
+// tracking script writes ?content=<slug>, the link generator stores
+// content_variant_id on tracked_links, and content_variants holds the human
+// name. Orphan slugs (variant deleted but historical sessions remain) are
+// kept as their own rows so signups aren't silently lost.
+export function aggContentVariationRows(
+  sessions: Session[],
+  contentVariants: ContentVariant[],
+  trackedLinks: TrackedLink[],
+  trials: Trial[],
+): AggContentVariationRow[] {
+  const trialMap = Object.fromEntries(trials.map(t => [t.id, t]));
+
+  const grouped: Record<string, {
+    visits: number;
+    signups: number;
+    platforms: Record<string, number>;
+    trials: Record<string, number>;
+  }> = {};
+
+  sessions
+    .filter(s => s.content)
+    .forEach(s => {
+      const k = s.content!;
+      if (!grouped[k]) grouped[k] = { visits: 0, signups: 0, platforms: {}, trials: {} };
+      grouped[k].visits++;
+      if (s.status === 'form_submitted') {
+        grouped[k].signups++;
+        if (s.platform_id) grouped[k].platforms[s.platform_id] = (grouped[k].platforms[s.platform_id] ?? 0) + 1;
+        if (s.trial_id)    grouped[k].trials[s.trial_id]       = (grouped[k].trials[s.trial_id]       ?? 0) + 1;
+      }
+    });
+
+  const linksByVariant: Record<string, number> = {};
+  trackedLinks.forEach(l => {
+    if (l.content_variant_id) {
+      linksByVariant[l.content_variant_id] = (linksByVariant[l.content_variant_id] ?? 0) + 1;
+    }
+  });
+
+  const topName = <T,>(counts: Record<string, number>, lookup: (id: string) => T | undefined, getName: (v: T) => string): string => {
+    const id = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (!id) return '—';
+    const v = lookup(id);
+    return v ? getName(v) : id;
+  };
+
+  const rows: AggContentVariationRow[] = [];
+
+  contentVariants.forEach(cv => {
+    const sl = slug(cv.name);
+    const g = grouped[sl];
+    rows.push({
+      key: cv.id,
+      variantId: cv.id,
+      variantName: cv.name,
+      slug: sl,
+      visits: g?.visits ?? 0,
+      signups: g?.signups ?? 0,
+      conv: g && g.visits ? g.signups / g.visits : 0,
+      linksCreated: linksByVariant[cv.id] ?? 0,
+      topPlatform: g ? topName(g.platforms, id => PLATFORM_MAP[id], p => p.name) : '—',
+      topTrial:    g ? topName(g.trials,    id => trialMap[id],     t => t.name) : '—',
+    });
+    delete grouped[sl];
+  });
+
+  Object.entries(grouped).forEach(([sl, g]) => {
+    rows.push({
+      key: 'orphan|' + sl,
+      variantId: null,
+      variantName: sl + ' (deleted)',
+      slug: sl,
+      visits: g.visits,
+      signups: g.signups,
+      conv: g.visits ? g.signups / g.visits : 0,
+      linksCreated: 0,
+      topPlatform: topName(g.platforms, id => PLATFORM_MAP[id], p => p.name),
+      topTrial:    topName(g.trials,    id => trialMap[id],     t => t.name),
+    });
+  });
+
+  return rows.sort((a, b) => b.signups - a.signups || b.visits - a.visits);
 }
 
 export function aggTrialRows(sessions: Session[], events: Event[], trials: Trial[], trackedLinks: TrackedLink[]): AggTrialRow[] {
