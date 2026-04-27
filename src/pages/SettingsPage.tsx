@@ -193,12 +193,12 @@ function TeamSection({ toast }: { toast: (m: string) => void }) {
   const handleRemove = async (id: string) => {
     if (id === user?.id) { toast('You cannot remove yourself'); return; }
     setRemoving(true);
-    const { error } = await (supabase.from('profiles') as any).delete().eq('id', id);
+    const { data, error: fnError } = await supabase.functions.invoke('delete-user', {
+      body: { userId: id },
+    });
     setRemoving(false);
-    if (error) {
-      toast(/row-level security/i.test(error.message)
-        ? 'Only the head admin can remove members.'
-        : 'Remove failed: ' + error.message);
+    if (fnError || data?.error) {
+      toast(data?.error ?? fnError?.message ?? 'Failed to remove member');
       return;
     }
     setRemoveTarget(null);
