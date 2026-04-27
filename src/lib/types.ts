@@ -57,6 +57,7 @@ export interface Trial {
   slug: string;
   tally_form_id: string | null;
   is_active: boolean;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -67,6 +68,7 @@ export interface Event {
   partner: string;
   trial_id: string | null;
   cost: number | null;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -74,12 +76,14 @@ export interface Event {
 export interface ContentVariant {
   id: string;
   name: string;
+  archived_at: string | null;
   created_at: string;
 }
 
 export interface Campaign {
   id: string;
   name: string;
+  archived_at: string | null;
   created_at: string;
 }
 

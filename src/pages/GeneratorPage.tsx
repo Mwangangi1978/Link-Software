@@ -22,7 +22,7 @@ interface Props {
 }
 
 export function GeneratorPage({ store, toast, reload }: Props) {
-  const activeTrials = store.trials.filter(t => t.is_active);
+  const activeTrials = store.trials.filter(t => t.is_active && !t.archived_at);
 
   const [linkType, setLinkType] = useState<'platform' | 'event'>('platform');
   const [pf, setPf] = useState({
@@ -297,19 +297,19 @@ export function GeneratorPage({ store, toast, reload }: Props) {
                 <div className="grid-2">
                   <div className="field">
                     <label>Campaign</label>
-                    {store.campaigns.length === 0 ? empty('Add campaigns in Configuration → Campaigns') : (
+                    {store.campaigns.filter(c => !c.archived_at).length === 0 ? empty('Add campaigns in Configuration → Campaigns') : (
                       <select className="select" value={pf.campaignId} onChange={e => setPf(f => ({ ...f, campaignId: e.target.value }))}>
                         <option value="">— None —</option>
-                        {store.campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        {store.campaigns.filter(c => !c.archived_at).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
                     )}
                   </div>
                   <div className="field">
                     <label>Content variation</label>
-                    {store.contentVariants.length === 0 ? empty('Add variations in Configuration → Content variations') : (
+                    {store.contentVariants.filter(c => !c.archived_at).length === 0 ? empty('Add variations in Configuration → Content variations') : (
                       <select className="select" value={pf.contentId} onChange={e => setPf(f => ({ ...f, contentId: e.target.value }))}>
                         <option value="">— None —</option>
-                        {store.contentVariants.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        {store.contentVariants.filter(c => !c.archived_at).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
                     )}
                   </div>
@@ -317,7 +317,7 @@ export function GeneratorPage({ store, toast, reload }: Props) {
               </>
             ) : (
               <>
-                {store.events.length === 0 ? (
+                {store.events.filter(ev => !ev.archived_at).length === 0 ? (
                   <div style={{ padding: '20px 18px', textAlign: 'center', background: 'var(--cream-2)', border: '1px dashed var(--line)', borderRadius: 12 }}>
                     <Icons.Building size={20} style={{ color: 'var(--ink-mute)' }} />
                     <div style={{ marginTop: 8, fontWeight: 600, fontSize: 14 }}>No events yet</div>
@@ -328,7 +328,7 @@ export function GeneratorPage({ store, toast, reload }: Props) {
                     <div className="field">
                       <label>Event *</label>
                       <select className="select" value={ef.eventId} onChange={e => setEf({ eventId: e.target.value })}>
-                        {store.events.map(ev => {
+                        {store.events.filter(ev => !ev.archived_at).map(ev => {
                           const t = store.trials.find(x => x.id === ev.trial_id);
                           return <option key={ev.id} value={ev.id}>{ev.name} — {ev.partner} ({t?.name})</option>;
                         })}

@@ -7,26 +7,32 @@ import type { Trial, Event, ContentVariant, Campaign } from '../lib/types';
 import { PLATFORMS } from '../lib/types';
 import { fmt } from '../lib/data';
 
-// ── Shared confirm-before-delete modal ──────────────────────
-function ConfirmDeleteModal({
+// ── Shared confirm modal (archive or hard-delete) ────────────
+function ConfirmActionModal({
   title,
   message,
   loading,
   onClose,
   onConfirm,
+  mode,
 }: {
   title: string;
   message: ReactNode;
   loading: boolean;
   onClose: () => void;
   onConfirm: () => void;
+  mode: 'archive' | 'delete';
 }) {
   return (
     <div className="modal-overlay" onClick={() => { if (!loading) onClose(); }}>
       <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
         <div className="modal-head">
           <div className="title">{title}</div>
-          <div className="sub">This action cannot be undone.</div>
+          <div className="sub">
+            {mode === 'archive'
+              ? 'The item will be archived and can be restored at any time.'
+              : 'This action cannot be undone.'}
+          </div>
         </div>
         <div style={{ padding: '18px 20px', fontSize: 13, color: 'var(--ink-soft)', lineHeight: 1.55 }}>
           {message}
@@ -40,7 +46,9 @@ function ConfirmDeleteModal({
             disabled={loading}
             style={{ background: 'var(--bad)', borderColor: 'var(--bad)' }}
           >
-            {loading ? 'Deleting…' : 'Delete'}
+            {loading
+              ? (mode === 'archive' ? 'Archiving…' : 'Deleting…')
+              : (mode === 'archive' ? 'Archive' : 'Delete')}
           </button>
         </div>
       </div>
@@ -53,6 +61,15 @@ function deleteErrorMessage(err: { message: string }, fallback: string): string 
   if (/row-level security/i.test(err.message)) return 'Delete blocked: only admins can delete here.';
   if (/foreign key|violates/i.test(err.message)) return fallback + ' is still referenced elsewhere.';
   return 'Delete failed: ' + err.message;
+}
+
+// Inline badge for archived rows
+function ArchivedBadge() {
+  return (
+    <span className="tag gray" style={{ marginLeft: 6, fontSize: 11, verticalAlign: 'middle' }}>
+      Archived
+    </span>
+  );
 }
 
 interface Props {
@@ -84,10 +101,10 @@ export function ConfigPage({ store, toast, reload }: Props) {
       <div className="cfg-tabs">
         {TABS.map(t => {
           const Ic = Icons[t.icon];
-          const count = t.id === 'trials' ? store.trials.length
-            : t.id === 'events' ? store.events.length
-            : t.id === 'variants' ? store.contentVariants.length
-            : t.id === 'campaigns' ? store.campaigns.length
+          const count = t.id === 'trials'    ? store.trials.filter(x => !x.archived_at).length
+            : t.id === 'events'    ? store.events.filter(x => !x.archived_at).length
+            : t.id === 'variants'  ? store.contentVariants.filter(x => !x.archived_at).length
+            : t.id === 'campaigns' ? store.campaigns.filter(x => !x.archived_at).length
             : PLATFORMS.length;
           return (
             <button key={t.id} className={'cfg-tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>
@@ -114,8 +131,9 @@ function TrialsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
   type Draft = Partial<Trial> & { name: string; slug: string };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<Trial | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [checking, setChecking] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ item: Trial; mode: 'archive' | 'delete' } | null>(null);
+  const [acting, setActing] = useState(false);
 
   const save = async () => {
     if (!draft?.name) return;
@@ -136,19 +154,40 @@ function TrialsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
     await reload();
   };
 
-  const confirmDelete = async () => {
-    if (!pendingDelete) return;
-    setDeleting(true);
-    const { error } = await (supabase.from('trials') as any).delete().eq('id', pendingDelete.id);
-    setDeleting(false);
+  const initAction = async (item: Trial) => {
+    setChecking(item.id);
+    const [{ count: sc }, { count: lc }] = await Promise.all([
+      supabase.from('sessions').select('*', { count: 'exact', head: true }).eq('trial_id', item.id),
+      supabase.from('tracked_links').select('*', { count: 'exact', head: true }).eq('trial_id', item.id),
+    ]);
+    setChecking(null);
+    setPendingAction({ item, mode: (sc ?? 0) + (lc ?? 0) > 0 ? 'archive' : 'delete' });
+  };
+
+  const confirmAction = async () => {
+    if (!pendingAction) return;
+    setActing(true);
+    const { mode, item } = pendingAction;
+    const { error } = mode === 'archive'
+      ? await (supabase.from('trials') as any).update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', item.id)
+      : await (supabase.from('trials') as any).delete().eq('id', item.id);
+    setActing(false);
     if (error) {
-      toast(deleteErrorMessage(error, 'Trial'));
+      toast(mode === 'archive' ? 'Archive failed: ' + error.message : deleteErrorMessage(error, 'Trial'));
       return;
     }
-    setPendingDelete(null);
+    setPendingAction(null);
     await reload();
-    toast('Trial deleted');
+    toast(mode === 'archive' ? 'Trial archived' : 'Trial deleted');
   };
+
+  const restore = async (id: string) => {
+    await (supabase.from('trials') as any).update({ archived_at: null, updated_at: new Date().toISOString() }).eq('id', id);
+    await reload();
+    toast('Trial restored');
+  };
+
+  const sorted = [...store.trials].sort((a, b) => (a.archived_at ? 1 : 0) - (b.archived_at ? 1 : 0));
 
   return (
     <div className="card">
@@ -196,33 +235,57 @@ function TrialsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
       <table className="table">
         <thead><tr><th>Name</th><th>Slug</th><th>Tally form</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          {store.trials.map(t => (
-            <tr key={t.id}>
-              <td style={{ fontWeight: 500 }}>{t.name}</td>
+          {sorted.map(t => (
+            <tr key={t.id} style={t.archived_at ? { opacity: 0.6 } : undefined}>
+              <td style={{ fontWeight: 500 }}>
+                {t.name}
+                {t.archived_at && <ArchivedBadge />}
+              </td>
               <td><span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--burgundy)' }}>/{t.slug}</span></td>
               <td><span style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{t.tally_form_id ?? '—'}</span></td>
-              <td>{t.is_active ? <Tag color="green"><span className="swatch" />Active</Tag> : <Tag color="gray">Inactive</Tag>}</td>
+              <td>
+                {t.archived_at
+                  ? <Tag color="gray">Archived</Tag>
+                  : t.is_active
+                    ? <Tag color="green"><span className="swatch" />Active</Tag>
+                    : <Tag color="gray">Inactive</Tag>}
+              </td>
               <td className="right">
-                <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
-                  <Switch on={t.is_active} onChange={() => toggle(t.id, t.is_active)} />
-                  <button className="btn-icon" title="Edit" onClick={() => setDraft(t)}><Icons.Edit size={15} /></button>
-                  <button className="btn-icon" title="Delete" onClick={() => setPendingDelete(t)} style={{ color: 'var(--bad)' }}>
-                    <Icons.X size={15} />
-                  </button>
-                </div>
+                {t.archived_at ? (
+                  <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => restore(t.id)}>Restore</button>
+                  </div>
+                ) : (
+                  <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
+                    <Switch on={t.is_active} onChange={() => toggle(t.id, t.is_active)} />
+                    <button className="btn-icon" title="Edit" onClick={() => setDraft(t)}><Icons.Edit size={15} /></button>
+                    <button
+                      className="btn-icon"
+                      title="Delete"
+                      disabled={checking === t.id}
+                      onClick={() => initAction(t)}
+                      style={{ color: 'var(--bad)' }}
+                    >
+                      {checking === t.id ? '…' : <Icons.X size={15} />}
+                    </button>
+                  </div>
+                )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {pendingDelete && (
-        <ConfirmDeleteModal
-          title="Delete trial"
-          message={<>Are you sure you want to delete <strong style={{ color: 'var(--ink)' }}>{pendingDelete.name}</strong>? Existing events and tracked links will keep their data but lose their trial reference.</>}
-          loading={deleting}
-          onClose={() => setPendingDelete(null)}
-          onConfirm={confirmDelete}
+      {pendingAction && (
+        <ConfirmActionModal
+          mode={pendingAction.mode}
+          title={pendingAction.mode === 'archive' ? 'Archive trial' : 'Delete trial'}
+          message={pendingAction.mode === 'archive'
+            ? <>Archive <strong style={{ color: 'var(--ink)' }}>{pendingAction.item.name}</strong>? Sessions and tracked links using this trial will remain visible and tagged as <strong style={{ color: 'var(--ink)' }}>Archived from {pendingAction.item.name}</strong>. You can restore it at any time.</>
+            : <>Delete <strong style={{ color: 'var(--ink)' }}>{pendingAction.item.name}</strong>? This trial has no associated data.</>}
+          loading={acting}
+          onClose={() => setPendingAction(null)}
+          onConfirm={confirmAction}
         />
       )}
     </div>
@@ -234,8 +297,9 @@ function EventsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
   type Draft = Partial<Event> & { name: string; partner: string };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<Event | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [checking, setChecking] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ item: Event; mode: 'archive' | 'delete' } | null>(null);
+  const [acting, setActing] = useState(false);
 
   const save = async () => {
     if (!draft?.name || !draft.partner || !draft.trial_id) return;
@@ -251,21 +315,42 @@ function EventsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
     toast('Event saved');
   };
 
-  const confirmDelete = async () => {
-    if (!pendingDelete) return;
-    setDeleting(true);
-    const { error } = await supabase.from('events').delete().eq('id', pendingDelete.id);
-    setDeleting(false);
-    if (error) {
-      toast(deleteErrorMessage(error, 'Event'));
-      return;
-    }
-    setPendingDelete(null);
-    await reload();
-    toast('Event deleted');
+  const initAction = async (item: Event) => {
+    setChecking(item.id);
+    const [{ count: sc }, { count: lc }] = await Promise.all([
+      supabase.from('sessions').select('*', { count: 'exact', head: true })
+        .eq('event_name', item.name).eq('partner', item.partner),
+      supabase.from('tracked_links').select('*', { count: 'exact', head: true }).eq('event_id', item.id),
+    ]);
+    setChecking(null);
+    setPendingAction({ item, mode: (sc ?? 0) + (lc ?? 0) > 0 ? 'archive' : 'delete' });
   };
 
-  const activeTrials = store.trials.filter(t => t.is_active);
+  const confirmAction = async () => {
+    if (!pendingAction) return;
+    setActing(true);
+    const { mode, item } = pendingAction;
+    const { error } = mode === 'archive'
+      ? await (supabase.from('events') as any).update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', item.id)
+      : await supabase.from('events').delete().eq('id', item.id);
+    setActing(false);
+    if (error) {
+      toast(mode === 'archive' ? 'Archive failed: ' + error.message : deleteErrorMessage(error, 'Event'));
+      return;
+    }
+    setPendingAction(null);
+    await reload();
+    toast(mode === 'archive' ? 'Event archived' : 'Event deleted');
+  };
+
+  const restore = async (id: string) => {
+    await (supabase.from('events') as any).update({ archived_at: null, updated_at: new Date().toISOString() }).eq('id', id);
+    await reload();
+    toast('Event restored');
+  };
+
+  const activeTrials = store.trials.filter(t => t.is_active && !t.archived_at);
+  const sorted = [...store.events].sort((a, b) => (a.archived_at ? 1 : 0) - (b.archived_at ? 1 : 0));
 
   return (
     <div className="card">
@@ -316,21 +401,36 @@ function EventsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
       <table className="table">
         <thead><tr><th>Name</th><th>Partner</th><th>Trial</th><th className="right">Cost</th><th></th></tr></thead>
         <tbody>
-          {store.events.map(e => {
+          {sorted.map(e => {
             const trial = store.trials.find(t => t.id === e.trial_id);
             return (
-              <tr key={e.id}>
-                <td style={{ fontWeight: 500 }}>{e.name}</td>
+              <tr key={e.id} style={e.archived_at ? { opacity: 0.6 } : undefined}>
+                <td style={{ fontWeight: 500 }}>
+                  {e.name}
+                  {e.archived_at && <ArchivedBadge />}
+                </td>
                 <td style={{ color: 'var(--ink-soft)' }}>{e.partner}</td>
                 <td>{trial?.name ?? '—'}</td>
                 <td className="right" style={{ fontFamily: 'var(--mono)' }}>{fmt(e.cost ?? 0, 'gbp')}</td>
                 <td className="right">
-                  <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
-                    <button className="btn-icon" title="Edit" onClick={() => setDraft(e)}><Icons.Edit size={15} /></button>
-                    <button className="btn-icon" title="Delete" onClick={() => setPendingDelete(e)} style={{ color: 'var(--bad)' }}>
-                      <Icons.X size={15} />
-                    </button>
-                  </div>
+                  {e.archived_at ? (
+                    <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => restore(e.id)}>Restore</button>
+                    </div>
+                  ) : (
+                    <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
+                      <button className="btn-icon" title="Edit" onClick={() => setDraft(e)}><Icons.Edit size={15} /></button>
+                      <button
+                        className="btn-icon"
+                        title="Delete"
+                        disabled={checking === e.id}
+                        onClick={() => initAction(e)}
+                        style={{ color: 'var(--bad)' }}
+                      >
+                        {checking === e.id ? '…' : <Icons.X size={15} />}
+                      </button>
+                    </div>
+                  )}
                 </td>
               </tr>
             );
@@ -338,13 +438,16 @@ function EventsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
         </tbody>
       </table>
 
-      {pendingDelete && (
-        <ConfirmDeleteModal
-          title="Delete event"
-          message={<>Are you sure you want to delete <strong style={{ color: 'var(--ink)' }}>{pendingDelete.name}</strong> ({pendingDelete.partner})? Tracked links pointing at this event will lose their event reference.</>}
-          loading={deleting}
-          onClose={() => setPendingDelete(null)}
-          onConfirm={confirmDelete}
+      {pendingAction && (
+        <ConfirmActionModal
+          mode={pendingAction.mode}
+          title={pendingAction.mode === 'archive' ? 'Archive event' : 'Delete event'}
+          message={pendingAction.mode === 'archive'
+            ? <>Archive <strong style={{ color: 'var(--ink)' }}>{pendingAction.item.name}</strong> ({pendingAction.item.partner})? Sessions and tracked links using this event will remain visible and tagged as <strong style={{ color: 'var(--ink)' }}>Archived from {pendingAction.item.name}</strong>. You can restore it at any time.</>
+            : <>Delete <strong style={{ color: 'var(--ink)' }}>{pendingAction.item.name}</strong> ({pendingAction.item.partner})? This event has no associated data.</>}
+          loading={acting}
+          onClose={() => setPendingAction(null)}
+          onConfirm={confirmAction}
         />
       )}
     </div>
@@ -356,8 +459,9 @@ function VariantsConfig({ store, toast, reload }: { store: Store; toast: (m: str
   type Draft = Partial<ContentVariant> & { name: string };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<ContentVariant | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [checking, setChecking] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ item: ContentVariant; mode: 'archive' | 'delete' } | null>(null);
+  const [acting, setActing] = useState(false);
 
   const save = async () => {
     if (!draft?.name) return;
@@ -373,19 +477,40 @@ function VariantsConfig({ store, toast, reload }: { store: Store; toast: (m: str
     toast('Variation saved');
   };
 
-  const confirmDelete = async () => {
-    if (!pendingDelete) return;
-    setDeleting(true);
-    const { error } = await supabase.from('content_variants').delete().eq('id', pendingDelete.id);
-    setDeleting(false);
+  const initAction = async (item: ContentVariant) => {
+    setChecking(item.id);
+    const [{ count: sc }, { count: lc }] = await Promise.all([
+      supabase.from('sessions').select('*', { count: 'exact', head: true }).eq('content', item.name),
+      supabase.from('tracked_links').select('*', { count: 'exact', head: true }).eq('content_variant_id', item.id),
+    ]);
+    setChecking(null);
+    setPendingAction({ item, mode: (sc ?? 0) + (lc ?? 0) > 0 ? 'archive' : 'delete' });
+  };
+
+  const confirmAction = async () => {
+    if (!pendingAction) return;
+    setActing(true);
+    const { mode, item } = pendingAction;
+    const { error } = mode === 'archive'
+      ? await (supabase.from('content_variants') as any).update({ archived_at: new Date().toISOString() }).eq('id', item.id)
+      : await supabase.from('content_variants').delete().eq('id', item.id);
+    setActing(false);
     if (error) {
-      toast(deleteErrorMessage(error, 'Variation'));
+      toast(mode === 'archive' ? 'Archive failed: ' + error.message : deleteErrorMessage(error, 'Variation'));
       return;
     }
-    setPendingDelete(null);
+    setPendingAction(null);
     await reload();
-    toast('Variation deleted');
+    toast(mode === 'archive' ? 'Variation archived' : 'Variation deleted');
   };
+
+  const restore = async (id: string) => {
+    await (supabase.from('content_variants') as any).update({ archived_at: null }).eq('id', id);
+    await reload();
+    toast('Variation restored');
+  };
+
+  const sorted = [...store.contentVariants].sort((a, b) => (a.archived_at ? 1 : 0) - (b.archived_at ? 1 : 0));
 
   return (
     <div className="card">
@@ -417,30 +542,48 @@ function VariantsConfig({ store, toast, reload }: { store: Store; toast: (m: str
       <table className="table">
         <thead><tr><th>Variation</th><th>URL slug</th><th></th></tr></thead>
         <tbody>
-          {store.contentVariants.map(c => (
-            <tr key={c.id}>
-              <td style={{ fontWeight: 500 }}>{c.name}</td>
+          {sorted.map(c => (
+            <tr key={c.id} style={c.archived_at ? { opacity: 0.6 } : undefined}>
+              <td style={{ fontWeight: 500 }}>
+                {c.name}
+                {c.archived_at && <ArchivedBadge />}
+              </td>
               <td><span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--burgundy)' }}>{c.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}</span></td>
               <td className="right">
-                <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
-                  <button className="btn-icon" title="Edit" onClick={() => setDraft(c)}><Icons.Edit size={15} /></button>
-                  <button className="btn-icon" title="Delete" onClick={() => setPendingDelete(c)} style={{ color: 'var(--bad)' }}>
-                    <Icons.X size={15} />
-                  </button>
-                </div>
+                {c.archived_at ? (
+                  <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => restore(c.id)}>Restore</button>
+                  </div>
+                ) : (
+                  <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
+                    <button className="btn-icon" title="Edit" onClick={() => setDraft(c)}><Icons.Edit size={15} /></button>
+                    <button
+                      className="btn-icon"
+                      title="Delete"
+                      disabled={checking === c.id}
+                      onClick={() => initAction(c)}
+                      style={{ color: 'var(--bad)' }}
+                    >
+                      {checking === c.id ? '…' : <Icons.X size={15} />}
+                    </button>
+                  </div>
+                )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {pendingDelete && (
-        <ConfirmDeleteModal
-          title="Delete content variation"
-          message={<>Are you sure you want to delete <strong style={{ color: 'var(--ink)' }}>{pendingDelete.name}</strong>? Tracked links tagged with this variation will lose the tag.</>}
-          loading={deleting}
-          onClose={() => setPendingDelete(null)}
-          onConfirm={confirmDelete}
+      {pendingAction && (
+        <ConfirmActionModal
+          mode={pendingAction.mode}
+          title={pendingAction.mode === 'archive' ? 'Archive content variation' : 'Delete content variation'}
+          message={pendingAction.mode === 'archive'
+            ? <>Archive <strong style={{ color: 'var(--ink)' }}>{pendingAction.item.name}</strong>? Sessions and tracked links using this variation will remain visible and tagged as <strong style={{ color: 'var(--ink)' }}>Archived from {pendingAction.item.name}</strong>. You can restore it at any time.</>
+            : <>Delete <strong style={{ color: 'var(--ink)' }}>{pendingAction.item.name}</strong>? This variation has no associated data.</>}
+          loading={acting}
+          onClose={() => setPendingAction(null)}
+          onConfirm={confirmAction}
         />
       )}
     </div>
@@ -452,8 +595,9 @@ function CampaignsConfig({ store, toast, reload }: { store: Store; toast: (m: st
   type Draft = Partial<Campaign> & { name: string };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<Campaign | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [checking, setChecking] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ item: Campaign; mode: 'archive' | 'delete' } | null>(null);
+  const [acting, setActing] = useState(false);
 
   const save = async () => {
     if (!draft?.name) return;
@@ -469,19 +613,40 @@ function CampaignsConfig({ store, toast, reload }: { store: Store; toast: (m: st
     toast('Campaign saved');
   };
 
-  const confirmDelete = async () => {
-    if (!pendingDelete) return;
-    setDeleting(true);
-    const { error } = await supabase.from('campaigns').delete().eq('id', pendingDelete.id);
-    setDeleting(false);
+  const initAction = async (item: Campaign) => {
+    setChecking(item.id);
+    const [{ count: sc }, { count: lc }] = await Promise.all([
+      supabase.from('sessions').select('*', { count: 'exact', head: true }).eq('campaign', item.name),
+      supabase.from('tracked_links').select('*', { count: 'exact', head: true }).eq('campaign_id', item.id),
+    ]);
+    setChecking(null);
+    setPendingAction({ item, mode: (sc ?? 0) + (lc ?? 0) > 0 ? 'archive' : 'delete' });
+  };
+
+  const confirmAction = async () => {
+    if (!pendingAction) return;
+    setActing(true);
+    const { mode, item } = pendingAction;
+    const { error } = mode === 'archive'
+      ? await (supabase.from('campaigns') as any).update({ archived_at: new Date().toISOString() }).eq('id', item.id)
+      : await supabase.from('campaigns').delete().eq('id', item.id);
+    setActing(false);
     if (error) {
-      toast(deleteErrorMessage(error, 'Campaign'));
+      toast(mode === 'archive' ? 'Archive failed: ' + error.message : deleteErrorMessage(error, 'Campaign'));
       return;
     }
-    setPendingDelete(null);
+    setPendingAction(null);
     await reload();
-    toast('Campaign deleted');
+    toast(mode === 'archive' ? 'Campaign archived' : 'Campaign deleted');
   };
+
+  const restore = async (id: string) => {
+    await (supabase.from('campaigns') as any).update({ archived_at: null }).eq('id', id);
+    await reload();
+    toast('Campaign restored');
+  };
+
+  const sorted = [...store.campaigns].sort((a, b) => (a.archived_at ? 1 : 0) - (b.archived_at ? 1 : 0));
 
   return (
     <div className="card">
@@ -513,30 +678,48 @@ function CampaignsConfig({ store, toast, reload }: { store: Store; toast: (m: st
       <table className="table">
         <thead><tr><th>Campaign</th><th>URL slug</th><th></th></tr></thead>
         <tbody>
-          {store.campaigns.map(c => (
-            <tr key={c.id}>
-              <td style={{ fontWeight: 500 }}>{c.name}</td>
+          {sorted.map(c => (
+            <tr key={c.id} style={c.archived_at ? { opacity: 0.6 } : undefined}>
+              <td style={{ fontWeight: 500 }}>
+                {c.name}
+                {c.archived_at && <ArchivedBadge />}
+              </td>
               <td><span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--burgundy)' }}>{c.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}</span></td>
               <td className="right">
-                <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
-                  <button className="btn-icon" title="Edit" onClick={() => setDraft(c)}><Icons.Edit size={15} /></button>
-                  <button className="btn-icon" title="Delete" onClick={() => setPendingDelete(c)} style={{ color: 'var(--bad)' }}>
-                    <Icons.X size={15} />
-                  </button>
-                </div>
+                {c.archived_at ? (
+                  <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => restore(c.id)}>Restore</button>
+                  </div>
+                ) : (
+                  <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
+                    <button className="btn-icon" title="Edit" onClick={() => setDraft(c)}><Icons.Edit size={15} /></button>
+                    <button
+                      className="btn-icon"
+                      title="Delete"
+                      disabled={checking === c.id}
+                      onClick={() => initAction(c)}
+                      style={{ color: 'var(--bad)' }}
+                    >
+                      {checking === c.id ? '…' : <Icons.X size={15} />}
+                    </button>
+                  </div>
+                )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {pendingDelete && (
-        <ConfirmDeleteModal
-          title="Delete campaign"
-          message={<>Are you sure you want to delete <strong style={{ color: 'var(--ink)' }}>{pendingDelete.name}</strong>? Tracked links tagged with this campaign will lose the tag.</>}
-          loading={deleting}
-          onClose={() => setPendingDelete(null)}
-          onConfirm={confirmDelete}
+      {pendingAction && (
+        <ConfirmActionModal
+          mode={pendingAction.mode}
+          title={pendingAction.mode === 'archive' ? 'Archive campaign' : 'Delete campaign'}
+          message={pendingAction.mode === 'archive'
+            ? <>Archive <strong style={{ color: 'var(--ink)' }}>{pendingAction.item.name}</strong>? Sessions and tracked links using this campaign will remain visible and tagged as <strong style={{ color: 'var(--ink)' }}>Archived from {pendingAction.item.name}</strong>. You can restore it at any time.</>
+            : <>Delete <strong style={{ color: 'var(--ink)' }}>{pendingAction.item.name}</strong>? This campaign has no associated data.</>}
+          loading={acting}
+          onClose={() => setPendingAction(null)}
+          onConfirm={confirmAction}
         />
       )}
     </div>
