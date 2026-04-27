@@ -1,10 +1,59 @@
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import type { Store } from '../App';
 import { PageHead, Switch, Tag, Icons } from '../components/dashboard/shared';
 import { supabase } from '../lib/supabase';
 import type { Trial, Event, ContentVariant, Campaign } from '../lib/types';
 import { PLATFORMS } from '../lib/types';
 import { fmt } from '../lib/data';
+
+// ── Shared confirm-before-delete modal ──────────────────────
+function ConfirmDeleteModal({
+  title,
+  message,
+  loading,
+  onClose,
+  onConfirm,
+}: {
+  title: string;
+  message: ReactNode;
+  loading: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="modal-overlay" onClick={() => { if (!loading) onClose(); }}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+        <div className="modal-head">
+          <div className="title">{title}</div>
+          <div className="sub">This action cannot be undone.</div>
+        </div>
+        <div style={{ padding: '18px 20px', fontSize: 13, color: 'var(--ink-soft)', lineHeight: 1.55 }}>
+          {message}
+        </div>
+        <div className="modal-foot">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>Cancel</button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onConfirm}
+            disabled={loading}
+            style={{ background: 'var(--bad)', borderColor: 'var(--bad)' }}
+          >
+            {loading ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Maps a Postgres/Supabase delete error into a user-friendly toast string.
+function deleteErrorMessage(err: { message: string }, fallback: string): string {
+  if (/row-level security/i.test(err.message)) return 'Delete blocked: only admins can delete here.';
+  if (/foreign key|violates/i.test(err.message)) return fallback + ' is still referenced elsewhere.';
+  return 'Delete failed: ' + err.message;
+}
 
 interface Props {
   store: Store;
@@ -65,6 +114,8 @@ function TrialsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
   type Draft = Partial<Trial> & { name: string; slug: string };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Trial | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const save = async () => {
     if (!draft?.name) return;
@@ -83,6 +134,20 @@ function TrialsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
   const toggle = async (id: string, current: boolean) => {
     await (supabase.from('trials') as any).update({ is_active: !current, updated_at: new Date().toISOString() }).eq('id', id);
     await reload();
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    const { error } = await (supabase.from('trials') as any).delete().eq('id', pendingDelete.id);
+    setDeleting(false);
+    if (error) {
+      toast(deleteErrorMessage(error, 'Trial'));
+      return;
+    }
+    setPendingDelete(null);
+    await reload();
+    toast('Trial deleted');
   };
 
   return (
@@ -140,13 +205,26 @@ function TrialsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
               <td className="right">
                 <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
                   <Switch on={t.is_active} onChange={() => toggle(t.id, t.is_active)} />
-                  <button className="btn-icon" onClick={() => setDraft(t)}><Icons.Edit size={15} /></button>
+                  <button className="btn-icon" title="Edit" onClick={() => setDraft(t)}><Icons.Edit size={15} /></button>
+                  <button className="btn-icon" title="Delete" onClick={() => setPendingDelete(t)} style={{ color: 'var(--bad)' }}>
+                    <Icons.X size={15} />
+                  </button>
                 </div>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {pendingDelete && (
+        <ConfirmDeleteModal
+          title="Delete trial"
+          message={<>Are you sure you want to delete <strong style={{ color: 'var(--ink)' }}>{pendingDelete.name}</strong>? Existing events and tracked links will keep their data but lose their trial reference.</>}
+          loading={deleting}
+          onClose={() => setPendingDelete(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
     </div>
   );
 }
@@ -156,6 +234,8 @@ function EventsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
   type Draft = Partial<Event> & { name: string; partner: string };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Event | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const save = async () => {
     if (!draft?.name || !draft.partner || !draft.trial_id) return;
@@ -171,10 +251,18 @@ function EventsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
     toast('Event saved');
   };
 
-  const remove = async (id: string) => {
-    await supabase.from('events').delete().eq('id', id);
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    const { error } = await supabase.from('events').delete().eq('id', pendingDelete.id);
+    setDeleting(false);
+    if (error) {
+      toast(deleteErrorMessage(error, 'Event'));
+      return;
+    }
+    setPendingDelete(null);
     await reload();
-    toast('Event removed');
+    toast('Event deleted');
   };
 
   const activeTrials = store.trials.filter(t => t.is_active);
@@ -238,8 +326,10 @@ function EventsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
                 <td className="right" style={{ fontFamily: 'var(--mono)' }}>{fmt(e.cost ?? 0, 'gbp')}</td>
                 <td className="right">
                   <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
-                    <button className="btn-icon" onClick={() => setDraft(e)}><Icons.Edit size={15} /></button>
-                    <button className="btn-icon" onClick={() => remove(e.id)}><Icons.X size={15} /></button>
+                    <button className="btn-icon" title="Edit" onClick={() => setDraft(e)}><Icons.Edit size={15} /></button>
+                    <button className="btn-icon" title="Delete" onClick={() => setPendingDelete(e)} style={{ color: 'var(--bad)' }}>
+                      <Icons.X size={15} />
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -247,6 +337,16 @@ function EventsConfig({ store, toast, reload }: { store: Store; toast: (m: strin
           })}
         </tbody>
       </table>
+
+      {pendingDelete && (
+        <ConfirmDeleteModal
+          title="Delete event"
+          message={<>Are you sure you want to delete <strong style={{ color: 'var(--ink)' }}>{pendingDelete.name}</strong> ({pendingDelete.partner})? Tracked links pointing at this event will lose their event reference.</>}
+          loading={deleting}
+          onClose={() => setPendingDelete(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
     </div>
   );
 }
@@ -256,6 +356,8 @@ function VariantsConfig({ store, toast, reload }: { store: Store; toast: (m: str
   type Draft = Partial<ContentVariant> & { name: string };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<ContentVariant | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const save = async () => {
     if (!draft?.name) return;
@@ -271,9 +373,18 @@ function VariantsConfig({ store, toast, reload }: { store: Store; toast: (m: str
     toast('Variation saved');
   };
 
-  const remove = async (id: string) => {
-    await supabase.from('content_variants').delete().eq('id', id);
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    const { error } = await supabase.from('content_variants').delete().eq('id', pendingDelete.id);
+    setDeleting(false);
+    if (error) {
+      toast(deleteErrorMessage(error, 'Variation'));
+      return;
+    }
+    setPendingDelete(null);
     await reload();
+    toast('Variation deleted');
   };
 
   return (
@@ -312,14 +423,26 @@ function VariantsConfig({ store, toast, reload }: { store: Store; toast: (m: str
               <td><span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--burgundy)' }}>{c.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}</span></td>
               <td className="right">
                 <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
-                  <button className="btn-icon" onClick={() => setDraft(c)}><Icons.Edit size={15} /></button>
-                  <button className="btn-icon" onClick={() => remove(c.id)}><Icons.X size={15} /></button>
+                  <button className="btn-icon" title="Edit" onClick={() => setDraft(c)}><Icons.Edit size={15} /></button>
+                  <button className="btn-icon" title="Delete" onClick={() => setPendingDelete(c)} style={{ color: 'var(--bad)' }}>
+                    <Icons.X size={15} />
+                  </button>
                 </div>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {pendingDelete && (
+        <ConfirmDeleteModal
+          title="Delete content variation"
+          message={<>Are you sure you want to delete <strong style={{ color: 'var(--ink)' }}>{pendingDelete.name}</strong>? Tracked links tagged with this variation will lose the tag.</>}
+          loading={deleting}
+          onClose={() => setPendingDelete(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
     </div>
   );
 }
@@ -329,6 +452,8 @@ function CampaignsConfig({ store, toast, reload }: { store: Store; toast: (m: st
   type Draft = Partial<Campaign> & { name: string };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Campaign | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const save = async () => {
     if (!draft?.name) return;
@@ -344,9 +469,18 @@ function CampaignsConfig({ store, toast, reload }: { store: Store; toast: (m: st
     toast('Campaign saved');
   };
 
-  const remove = async (id: string) => {
-    await supabase.from('campaigns').delete().eq('id', id);
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    const { error } = await supabase.from('campaigns').delete().eq('id', pendingDelete.id);
+    setDeleting(false);
+    if (error) {
+      toast(deleteErrorMessage(error, 'Campaign'));
+      return;
+    }
+    setPendingDelete(null);
     await reload();
+    toast('Campaign deleted');
   };
 
   return (
@@ -385,14 +519,26 @@ function CampaignsConfig({ store, toast, reload }: { store: Store; toast: (m: st
               <td><span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--burgundy)' }}>{c.name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}</span></td>
               <td className="right">
                 <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
-                  <button className="btn-icon" onClick={() => setDraft(c)}><Icons.Edit size={15} /></button>
-                  <button className="btn-icon" onClick={() => remove(c.id)}><Icons.X size={15} /></button>
+                  <button className="btn-icon" title="Edit" onClick={() => setDraft(c)}><Icons.Edit size={15} /></button>
+                  <button className="btn-icon" title="Delete" onClick={() => setPendingDelete(c)} style={{ color: 'var(--bad)' }}>
+                    <Icons.X size={15} />
+                  </button>
                 </div>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {pendingDelete && (
+        <ConfirmDeleteModal
+          title="Delete campaign"
+          message={<>Are you sure you want to delete <strong style={{ color: 'var(--ink)' }}>{pendingDelete.name}</strong>? Tracked links tagged with this campaign will lose the tag.</>}
+          loading={deleting}
+          onClose={() => setPendingDelete(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
     </div>
   );
 }
