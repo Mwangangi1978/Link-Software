@@ -44,11 +44,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const fetchProfile = async (userId: string): Promise<Profile | null> => {
-    const { data } = await (supabase.from('profiles') as any)
-      .select('*')
-      .eq('id', userId)
-      .single();
-    return (data as Profile) ?? null;
+    try {
+      const { data } = await (supabase.from('profiles') as any)
+        .select('*')
+        .eq('id', userId)
+        .single();
+      return (data as Profile) ?? null;
+    } catch (err) {
+      console.error('fetchProfile failed:', err);
+      return null;
+    }
   };
 
   const refreshProfile = async () => {
@@ -62,19 +67,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    // Resolve user + profile and flip loading off. Wrapped in try/catch so a
+    // hung profile fetch never strands the UI on the loading screen.
+    const hydrate = async (user: User | null) => {
       if (!mounted) return;
-      const user = session?.user ?? null;
-      const profile = user ? await fetchProfile(user.id) : null;
-      setState({ user, profile, loading: false });
-    });
+      try {
+        const profile = user ? await fetchProfile(user.id) : null;
+        if (!mounted) return;
+        setState({ user, profile, loading: false });
+      } catch (err) {
+        console.error('auth hydrate failed:', err);
+        if (mounted) setState({ user, profile: null, loading: false });
+      }
+    };
 
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => hydrate(session?.user ?? null))
+      .catch(err => {
+        console.error('getSession failed:', err);
+        if (mounted) setState({ user: null, profile: null, loading: false });
+      });
+
+    // IMPORTANT: do NOT await a supabase call inside onAuthStateChange — the
+    // GoTrue client holds an internal lock for the duration of the callback,
+    // and any awaited supabase request inside will deadlock against
+    // getSession()/getUser(). We defer with setTimeout(0) to release the lock
+    // before doing the profile fetch.
+    // See: https://github.com/supabase/auth-js/issues/762
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_, session) => {
+      (_event, session) => {
         if (!mounted) return;
         const user = session?.user ?? null;
-        const profile = user ? await fetchProfile(user.id) : null;
-        setState({ user, profile, loading: false });
+        setTimeout(() => { hydrate(user); }, 0);
       }
     );
 

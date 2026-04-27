@@ -526,7 +526,7 @@ input, textarea {
   gap: 6px;
   font-size: 13px;
   font-weight: 500;
-  color: #fdfdfd;
+  color: #020202;
 }
 
 .color-input-shell {
@@ -553,7 +553,7 @@ input, textarea {
 .color-hex-input {
   font-size: 13px;
   font-weight: 500;
-  color: #fdfdfd;
+  color: #070707;
   font-family: 'IBM Plex Mono', monospace;
   background: transparent;
   border: none;
@@ -581,7 +581,7 @@ input, textarea {
 .qr-customization-title {
   font-size: 14px;
   font-weight: 600;
-  color: #fdfdfd;
+  color: #0c0c0c;
 }
 
 .upload-dropzone {
@@ -607,12 +607,12 @@ input, textarea {
 .upload-title {
   font-size: 13px;
   font-weight: 500;
-  color: #fdfdfd;
+  color: #4f1010;
 }
 
 .upload-subtext {
   font-size: 12px;
-  color: rgba(253, 253, 253, 0.62);
+  color: #4f1010;
 }
 
 .logo-uploaded-row {

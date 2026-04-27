@@ -1,9 +1,9 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Store } from '../App';
-import { PageHead, Tag, FakeQR, Switch, Icons } from '../components/dashboard/shared';
+import { PageHead, Switch, Icons } from '../components/dashboard/shared';
 import { supabase } from '../lib/supabase';
 import { slug, fmt } from '../lib/data';
-import { PLATFORMS } from '../lib/types';
+import { PLATFORMS, type TrackedLink } from '../lib/types';
 import { QRCodeCanvas } from 'qrcode.react';
 import jsPDF from 'jspdf';
 
@@ -37,6 +37,9 @@ export function GeneratorPage({ store, toast, reload }: Props) {
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Right-side preview only appears after a successful "Generate & save"
+  const [showPreview, setShowPreview] = useState(false);
+
   // QR styling state
   const [bgColor, setBgColor] = useState('#ffffff');
   const [fgColor, setFgColor] = useState('#2a0612');
@@ -45,6 +48,13 @@ export function GeneratorPage({ store, toast, reload }: Props) {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const qrCanvasWrapRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Modal for "Get QR code" action in the history table
+  const [qrTarget, setQrTarget] = useState<TrackedLink | null>(null);
+
+  // When the form changes, the preview must be re-generated. Wipe it so the
+  // user can't mistake a stale preview for "this is what's saved".
+  useEffect(() => { setShowPreview(false); }, [linkType, pf, ef]);
 
   const generatedUrl = useMemo(() => {
     if (linkType === 'platform') {
@@ -174,17 +184,9 @@ export function GeneratorPage({ store, toast, reload }: Props) {
 
     setSaving(true);
 
-    // Embed a snapshot of the styled QR so the saved row carries its rendered output
-    let qrDataUrl: string | null = null;
-    try {
-      const canvas = await buildCompositeCanvas();
-      qrDataUrl = canvas.toDataURL('image/png');
-    } catch {
-      // QR canvas not yet mounted is non-fatal; just save the row without an image
-    }
-
     const ev = linkType === 'event' ? store.events.find(x => x.id === ef.eventId) : null;
 
+    // QR PNGs are generated on demand at view time — never persisted.
     const row = {
       link_type: linkType,
       destination_url: generatedUrl.split('?')[0],
@@ -192,17 +194,18 @@ export function GeneratorPage({ store, toast, reload }: Props) {
       platform_id:        linkType === 'platform' ? pf.platformId : null,
       is_paid:            linkType === 'platform' ? pf.isPaid : false,
       amount_spent:       linkType === 'platform' && pf.isPaid ? (+pf.amountSpent || null) : null,
-      event_id:           linkType === 'event' ? ef.eventId : null,
-      trial_id:           linkType === 'platform' ? pf.trialId : (ev?.trial_id ?? null),
+      event_id:           linkType === 'event' ? (ef.eventId || null) : null,
+      // Empty-string UUIDs would fail the FK silently — coerce to null.
+      trial_id:           linkType === 'platform' ? (pf.trialId || null) : (ev?.trial_id ?? null),
       content_variant_id: linkType === 'platform' ? (pf.contentId || null) : null,
       campaign_id:        linkType === 'platform' ? (pf.campaignId || null) : null,
-      qr_code_data:       qrDataUrl,
+      qr_code_data:       null,
     };
 
     const { error } = await (supabase.from('tracked_links') as any).insert(row);
-    setSaving(false);
 
     if (error) {
+      setSaving(false);
       console.error('tracked_links insert failed:', error);
       const msg = /row-level security/i.test(error.message)
         ? 'Save blocked: only admins can create tracked links.'
@@ -212,6 +215,8 @@ export function GeneratorPage({ store, toast, reload }: Props) {
     }
 
     await reload();
+    setShowPreview(true);
+    setSaving(false);
     toast('Tracked link saved');
   };
 
@@ -383,10 +388,12 @@ export function GeneratorPage({ store, toast, reload }: Props) {
                 borderRadius: 10, padding: '14px', fontFamily: 'var(--mono)',
                 fontSize: 12, color: 'var(--burgundy)', wordBreak: 'break-all', lineHeight: 1.6,
               }}>
-                {generatedUrl || <span style={{ color: 'var(--ink-mute)' }}>Pick the dropdowns to generate a link</span>}
+                {showPreview && generatedUrl
+                  ? generatedUrl
+                  : <span style={{ color: 'var(--ink-mute)' }}>Click <strong>Generate &amp; save</strong> to preview your tracked URL.</span>}
               </div>
               <div className="row gap-8" style={{ marginTop: 12 }}>
-                <button className="btn btn-soft btn-sm" onClick={onCopy} disabled={!generatedUrl}>
+                <button className="btn btn-soft btn-sm" onClick={onCopy} disabled={!showPreview || !generatedUrl}>
                   {copied ? <Icons.Check size={13} /> : <Icons.Copy size={13} />}
                   {copied ? 'Copied' : 'Copy URL'}
                 </button>
@@ -402,16 +409,17 @@ export function GeneratorPage({ store, toast, reload }: Props) {
               </div>
             </div>
             <div className="card-body" style={{ display: 'grid', gap: 16 }}>
-              {/* Live preview */}
+              {/* Live preview — only mounts after a successful Generate & save */}
               <div
                 ref={qrCanvasWrapRef}
                 style={{
                   display: 'grid', placeItems: 'center', padding: 22,
-                  background: bgColor, borderRadius: 12,
+                  background: showPreview ? bgColor : 'var(--cream-2)', borderRadius: 12,
                   border: '1px solid var(--line)',
+                  minHeight: 212,
                 }}
               >
-                {generatedUrl ? (
+                {showPreview && generatedUrl ? (
                   <div style={{ position: 'relative', display: 'inline-flex' }}>
                     <QRCodeCanvas
                       value={generatedUrl}
@@ -435,7 +443,13 @@ export function GeneratorPage({ store, toast, reload }: Props) {
                       />
                     )}
                   </div>
-                ) : <FakeQR size={168} />}
+                ) : (
+                  <div style={{ textAlign: 'center', color: 'var(--ink-mute)', padding: '20px 12px' }}>
+                    <Icons.QR size={36} />
+                    <div style={{ marginTop: 10, fontSize: 13, fontWeight: 500 }}>No QR code yet</div>
+                    <div style={{ fontSize: 12, marginTop: 4 }}>Click <strong>Generate &amp; save</strong> to create one.</div>
+                  </div>
+                )}
               </div>
 
               {/* Color pickers */}
@@ -560,7 +574,7 @@ export function GeneratorPage({ store, toast, reload }: Props) {
           <thead>
             <tr>
               <th>Destination</th>
-              <th>Type</th>
+              <th>QR</th>
               <th>Source</th>
               <th>Trial</th>
               <th>Created</th>
@@ -578,9 +592,9 @@ export function GeneratorPage({ store, toast, reload }: Props) {
                 <tr key={h.id}>
                   <td><span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--burgundy)' }}>{h.full_tracked_url.replace(/^https?:\/\//, '').slice(0, 60)}…</span></td>
                   <td>
-                    {h.link_type === 'platform'
-                      ? (h.is_paid ? <Tag color="blue">Platform · Paid</Tag> : <Tag color="gray">Platform · Organic</Tag>)
-                      : <Tag color="amber">Event</Tag>}
+                    <button className="btn btn-soft btn-sm" onClick={() => setQrTarget(h)}>
+                      <Icons.QR size={13} /> Get QR code
+                    </button>
                   </td>
                   <td style={{ fontSize: 12 }}>{sourceLabel}</td>
                   <td style={{ color: 'var(--ink-soft)' }}>{trial?.name ?? '—'}</td>
@@ -600,6 +614,66 @@ export function GeneratorPage({ store, toast, reload }: Props) {
             )}
           </tbody>
         </table>
+      </div>
+
+      {qrTarget && (
+        <QrCodeModal
+          link={qrTarget}
+          onClose={() => setQrTarget(null)}
+          toast={toast}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── On-demand QR code modal for the history table ──────────
+interface QrCodeModalProps {
+  link: TrackedLink;
+  onClose: () => void;
+  toast: (m: string) => void;
+}
+function QrCodeModal({ link, onClose, toast }: QrCodeModalProps) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const downloadPNG = () => {
+    const canvas = wrapRef.current?.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = 'trialme-qr.png';
+    a.click();
+    toast('PNG exported');
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 360 }}>
+        <div className="modal-head">
+          <div className="title">QR code</div>
+          <div className="sub" style={{ wordBreak: 'break-all', fontFamily: 'var(--mono)', fontSize: 11 }}>
+            {link.full_tracked_url}
+          </div>
+        </div>
+        <div style={{ padding: 20, display: 'grid', placeItems: 'center', background: '#fff' }}>
+          <div ref={wrapRef} style={{ padding: 16, background: '#fff', borderRadius: 12, border: '1px solid var(--line)' }}>
+            <QRCodeCanvas
+              value={link.full_tracked_url}
+              size={200}
+              level="H"
+              marginSize={2}
+              bgColor="#ffffff"
+              fgColor="#2a0612"
+            />
+          </div>
+        </div>
+        <div className="modal-foot">
+          <div style={{ flex: 1 }} />
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>Close</button>
+          <button className="btn btn-primary btn-sm" onClick={downloadPNG}>
+            <Icons.Download size={13} /> Download PNG
+          </button>
+        </div>
       </div>
     </div>
   );
