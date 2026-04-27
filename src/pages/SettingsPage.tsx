@@ -407,7 +407,18 @@ function InviteModal({
     });
 
     if (fnError || data?.error) {
-      setError(data?.error ?? fnError?.message ?? 'Failed to send invite');
+      // supabase-js masks non-2xx responses with a generic "non-2xx status code"
+      // message. The real reason is on error.context (the raw Response). Read
+      // it so the user sees, e.g., "Invalid redirect URL not allowed" instead.
+      let message = data?.error ?? fnError?.message ?? 'Failed to send invite';
+      const ctx = (fnError as unknown as { context?: Response })?.context;
+      if (ctx && typeof ctx.json === 'function') {
+        try {
+          const body = await ctx.json();
+          if (body?.error) message = body.error;
+        } catch { /* response wasn't JSON — keep generic message */ }
+      }
+      setError(message);
       setLoading(false);
     } else {
       onDone();
