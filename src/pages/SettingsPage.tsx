@@ -398,8 +398,12 @@ function InviteModal({
     setLoading(true);
     setError(null);
 
+    // Land the invitee back on this exact origin (prod, preview, or local dev)
+    // with ?invite=1 so the app knows to prompt them to set a password.
+    const redirectTo = `${window.location.origin}/?invite=1`;
+
     const { data, error: fnError } = await supabase.functions.invoke('invite-user', {
-      body: { email, role, full_name: fullName || null },
+      body: { email, role, full_name: fullName || null, redirectTo },
     });
 
     if (fnError || data?.error) {

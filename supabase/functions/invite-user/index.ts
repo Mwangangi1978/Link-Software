@@ -44,13 +44,22 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Only the head admin can invite members' }, 403)
     }
 
-    const { email, role = 'viewer', full_name } = await req.json()
+    const { email, role = 'viewer', full_name, redirectTo } = await req.json()
     if (!email) return json({ error: 'Email is required' }, 400)
     if (!['head_admin', 'admin', 'viewer'].includes(role)) return json({ error: 'Invalid role' }, 400)
+
+    // Where the invitee lands after Supabase verifies the email token. Falls
+    // back to the request Origin so dev and prod both work without a hard-coded
+    // URL. The target app must handle ?invite=1 and prompt for a password —
+    // otherwise the invitee is auto-signed-in with no password set and can
+    // never sign back in.
+    const fallbackOrigin = req.headers.get('origin') ?? Deno.env.get('SITE_URL') ?? ''
+    const inviteRedirect = redirectTo || (fallbackOrigin ? `${fallbackOrigin}/?invite=1` : undefined)
 
     // Send the Supabase invite email
     const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
       data: { role, full_name: full_name || null },
+      redirectTo: inviteRedirect,
     })
     if (error) throw error
     const invitedEmail = data.user.email ?? email

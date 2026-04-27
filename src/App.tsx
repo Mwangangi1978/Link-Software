@@ -15,6 +15,7 @@ import { FunnelPage } from './pages/FunnelPage';
 import { ConfigPage } from './pages/ConfigPage';
 import { GeneratorPage } from './pages/GeneratorPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { SetPasswordPage } from './pages/SetPasswordPage';
 
 export interface Store {
   trials: Trial[];
@@ -45,6 +46,22 @@ export default function App() {
   const [dateRange, setDateRange] = useState<DateRangeId>('30d');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toast = useCallback((m: string) => setToastMsg(m), []);
+
+  // Detect the invite-landing redirect (?invite=1). Read once at mount so the
+  // flag survives our own URL cleanup after the password is set.
+  const [inviteFlow, setInviteFlow] = useState(() =>
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('invite') === '1'
+  );
+
+  const exitInviteFlow = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('invite');
+      window.history.replaceState({}, '', url.toString());
+    }
+    setInviteFlow(false);
+  }, []);
 
   const [store, setStore] = useState<Store>({
     trials: [], events: [], contentVariants: [],
@@ -97,6 +114,23 @@ export default function App() {
 
   // ── Sign-in gate ───────────────────────────────────────────
   if (!user) return <SignInPage />;
+
+  // ── Invite landing: force the new member to set a password ─
+  // The Supabase invite flow signs the invitee in via a one-time magic link
+  // without setting a password. If we send them straight to the dashboard,
+  // they can never sign back in after signing out. Intercept here and require
+  // a password before continuing.
+  if (inviteFlow) {
+    return (
+      <SetPasswordPage
+        email={user.email ?? null}
+        onDone={() => {
+          setToastMsg('Password set — you can now sign in any time.');
+          exitInviteFlow();
+        }}
+      />
+    );
+  }
 
   // Authenticated but not provisioned in profiles.
   // Keep users out of the app until an admin invites/provisions them correctly.
